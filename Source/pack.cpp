@@ -372,6 +372,10 @@ void UnPackPlayer(const PlayerPack &packed, Player &player)
 	player._pDexterity = player._pBaseDex;
 	player._pBaseVit = std::min<uint8_t>(packed.pBaseVit, player.GetMaximumAttributeValue(CharacterAttribute::Vitality));
 	player._pVitality = player._pBaseVit;
+	player._pMaxHPBase = player.calculateBaseLife();
+	player._pHPBase = player._pMaxHPBase;
+	player._pMaxHP = player._pMaxHPBase;
+	player._pHitPoints = player._pHPBase;
 	player._pStatPts = packed.pStatPts;
 
 	player._pExperience = SDL_SwapLE32(packed.pExperience);
