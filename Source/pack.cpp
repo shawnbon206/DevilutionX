@@ -387,6 +387,10 @@ void UnPackPlayer(const PlayerPack &packed, Player &player)
 	player._pMaxManaBase = SDL_SwapLE32(packed.pMaxManaBase);
 	player._pManaBase = SDL_SwapLE32(packed.pManaBase);
 	player._pManaBase = std::min<int32_t>(player._pManaBase, player._pMaxManaBase);
+	player._pMaxManaBase = player.calculateBaseMana();
+	player._pManaBase = player._pMaxManaBase;
+	player._pMaxMana = player._pMaxManaBase;
+	player._pMana = player._pManaBase;
 	player._pMemSpells = SDL_SwapLE64(packed.pMemSpells);
 
 	for (int i = 0; i < 37; i++) // Should be MAX_SPELLS but set to 36 to make save games compatible
