@@ -3095,13 +3095,14 @@ void OperateShrine(Player &player, Object &shrine, _sfx_id sType)
 		CloseGoldDrop();
 	}
 
+	shrine._oRndSeed = AdvanceRndSeed();
 	SetRndSeed(shrine._oRndSeed);
-	shrine._oSelFlag = 0;
 
 	PlaySfxLoc(sType, shrine.position);
 	shrine._oAnimFlag = true;
 	shrine._oAnimDelay = 1;
 
+	shrine._oVar1 = ShrineEnchanted;
 	switch (shrine._oVar1) {
 	case ShrineMysterious:
 		OperateShrineMysterious(player);
@@ -3204,9 +3205,6 @@ void OperateShrine(Player &player, Object &shrine, _sfx_id sType)
 		OperateShrineMurphys(player);
 		break;
 	}
-
-	if (&player == MyPlayer)
-		NetSendCmdLoc(MyPlayerId, false, CMD_OPERATEOBJ, shrine.position);
 }
 
 void OperateBookStand(Object &bookStand, bool sendmsg, bool sendLootMsg)

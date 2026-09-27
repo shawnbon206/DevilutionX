@@ -109,6 +109,8 @@ void RepeatMouseAction()
 			CheckPlrSpell(false);
 		break;
 	case MouseActionType::OperateObject:
+		if (ObjectUnderCursor != nullptr && IsAnyOf(ObjectUnderCursor->_otype, _object_id::OBJ_SHRINEL, _object_id::OBJ_SHRINER, _object_id::OBJ_GOATSHRINE, _object_id::OBJ_CAULDRON))
+			break;
 		if (ObjectUnderCursor != nullptr && !ObjectUnderCursor->isDoor()) {
 			NetSendCmdLoc(MyPlayerId, true, CMD_OPOBJXY, cursPosition);
 		}
