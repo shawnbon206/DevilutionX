@@ -111,4 +111,35 @@ TEST(VendorValue, AdriaStaves)
 	}
 }
 
+namespace {
+
+bool IsArchAngelsWizardry(const Item &item)
+{
+	return item._iPrePower == IPL_SPLLVLADD && item._iSplLvlAdd == 2 && item._iSufPower == IPL_MAG && item._iPLMag >= 21;
+}
+
+} // namespace
+
+TEST(VendorValue, AdriaArchAngelsWizardry)
+{
+	InitHero();
+	std::printf("\nAdria staves that are Arch-Angel's of Wizardry\n slvl   staves   wanted    1 in\n");
+	for (int lvl = 13; lvl <= 16; lvl++) {
+		int staves = 0;
+		int wanted = 0;
+		for (int i = 0; i < 20000; i++) {
+			SetRndSeed(i * 7919 + lvl);
+			SpawnWitch(lvl);
+			for (const Item &item : witchitem) {
+				if (item.isEmpty() || item._itype != ItemType::Staff)
+					continue;
+				staves++;
+				if (IsArchAngelsWizardry(item))
+					wanted++;
+			}
+		}
+		std::printf("%5d %8d %8d %7d\n", lvl, staves, wanted, wanted > 0 ? staves / wanted : 0);
+	}
+}
+
 } // namespace devilution
