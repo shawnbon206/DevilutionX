@@ -4285,6 +4285,11 @@ void SpawnPremium(const Player &player)
 	}
 }
 
+bool IsWantedStaff(const Item &item)
+{
+	return item._iPrePower == IPL_SPLLVLADD && item._iSplLvlAdd == 2 && item._iSufPower == IPL_MAG && item._iPLMag >= 21;
+}
+
 void SpawnWitch(int lvl)
 {
 	constexpr int PinnedItemCount = 3;
@@ -4331,12 +4336,16 @@ void SpawnWitch(int lvl)
 			continue;
 		}
 
+		int tries = 0;
+		bool staffSlot = false;
 		do {
 			item = {};
 			item._iSeed = AdvanceRndSeed();
 			SetRndSeed(item._iSeed);
 			_item_indexes itemData = RndWitchItem(*MyPlayer, lvl);
 			GetItemAttrs(item, itemData, lvl);
+			if (item._itype == ItemType::Staff && lvl >= 13)
+				staffSlot = true;
 			int maxlvl = -1;
 			if (GenerateRnd(100) <= 5)
 				maxlvl = 2 * lvl;
@@ -4344,7 +4353,7 @@ void SpawnWitch(int lvl)
 				maxlvl = 2 * lvl;
 			if (maxlvl != -1)
 				GetItemBonus(*MyPlayer, item, maxlvl / 2, maxlvl, true, true);
-		} while (item._iIvalue > maxValue);
+		} while (item._iIvalue > maxValue || (staffSlot && !IsWantedStaff(item) && ++tries < 10000));
 
 		item._iCreateInfo = lvl | CF_WITCH;
 		item._iIdentified = true;
