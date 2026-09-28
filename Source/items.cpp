@@ -4353,7 +4353,7 @@ void SpawnWitch(int lvl)
 				maxlvl = 2 * lvl;
 			if (maxlvl != -1)
 				GetItemBonus(*MyPlayer, item, maxlvl / 2, maxlvl, true, true);
-		} while (item._iIvalue > maxValue || (staffSlot && !IsWantedStaff(item) && ++tries < 10000));
+		} while (item._iIvalue > maxValue || (staffSlot && !IsWantedStaff(item) && ++tries < 100000));
 
 		item._iCreateInfo = lvl | CF_WITCH;
 		item._iIdentified = true;
