@@ -37,7 +37,7 @@ set(tests
   rectangle_test
   scrollrt_test
   stores_test
-  wirt_value_test
+  vendor_value_test
   str_cat_test
   timedemo_test
   utf8_test

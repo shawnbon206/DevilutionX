@@ -59,19 +59,19 @@ extern int8_t storehidx[48];
 extern DVL_API_FOR_TEST Item storehold[48];
 
 /** Items sold by Griswold */
-extern Item smithitem[SMITH_ITEMS];
+extern DVL_API_FOR_TEST Item smithitem[SMITH_ITEMS];
 /** Number of premium items for sale by Griswold */
-extern int numpremium;
+extern DVL_API_FOR_TEST int numpremium;
 /** Base level of current premium items sold by Griswold */
-extern int premiumlevel;
+extern DVL_API_FOR_TEST int premiumlevel;
 /** Premium items sold by Griswold */
-extern Item premiumitems[SMITH_PREMIUM_ITEMS];
+extern DVL_API_FOR_TEST Item premiumitems[SMITH_PREMIUM_ITEMS];
 
 /** Items sold by Pepin */
 extern Item healitem[20];
 
 /** Items sold by Adria */
-extern Item witchitem[WITCH_ITEMS];
+extern DVL_API_FOR_TEST Item witchitem[WITCH_ITEMS];
 
 /** Current level of the item sold by Wirt */
 extern DVL_API_FOR_TEST int boylevel;

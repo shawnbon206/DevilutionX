@@ -12,8 +12,9 @@
 namespace devilution {
 namespace {
 
-void Setup()
+void InitHero()
 {
+	MyPlayer = nullptr;
 	Players.resize(1);
 	// MyPlayer must be set after CreatePlayer, or equipping the starting gear sends network messages.
 	CreatePlayer(Players[0], HeroClass::Warrior);
@@ -39,7 +40,7 @@ void PrintRow(int level, std::vector<int> &v)
 
 TEST(VendorValue, Wirt)
 {
-	Setup();
+	InitHero();
 	PrintHeader("Wirt, by character level", "clvl");
 	for (int lvl = 10; lvl <= 50; lvl += 2) {
 		MyPlayer->_pLevel = lvl;
@@ -57,7 +58,7 @@ TEST(VendorValue, Wirt)
 
 TEST(VendorValue, GriswoldPremium)
 {
-	Setup();
+	InitHero();
 	PrintHeader("Griswold premium, all 6 slots pooled, by character level", "clvl");
 	for (int lvl = 10; lvl <= 40; lvl += 2) {
 		MyPlayer->_pLevel = lvl;
@@ -78,7 +79,7 @@ TEST(VendorValue, GriswoldPremium)
 
 TEST(VendorValue, GriswoldRegular)
 {
-	Setup();
+	InitHero();
 	PrintHeader("Griswold regular stock, by store level (clvl / 2 + 2, 6 to 16)", "slvl");
 	for (int lvl = 6; lvl <= 16; lvl++) {
 		std::vector<int> v;
@@ -95,7 +96,7 @@ TEST(VendorValue, GriswoldRegular)
 
 TEST(VendorValue, AdriaStaves)
 {
-	Setup();
+	InitHero();
 	PrintHeader("Adria staves only, by store level (clvl / 2 + 2, 6 to 16)", "slvl");
 	for (int lvl = 6; lvl <= 16; lvl++) {
 		std::vector<int> v;
