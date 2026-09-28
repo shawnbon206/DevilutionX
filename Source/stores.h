@@ -74,9 +74,9 @@ extern Item healitem[20];
 extern Item witchitem[WITCH_ITEMS];
 
 /** Current level of the item sold by Wirt */
-extern int boylevel;
+extern DVL_API_FOR_TEST int boylevel;
 /** Current item sold by Wirt */
-extern Item boyitem;
+extern DVL_API_FOR_TEST Item boyitem;
 
 void AddStoreHoldRepair(Item *itm, int8_t i);
 
