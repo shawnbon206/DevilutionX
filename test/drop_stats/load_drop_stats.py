@@ -1,9 +1,10 @@
-"""Loads the CSV output of run_drop_stats.ps1 into a SQLite database.
+"""Loads the CSV output of the simulation workers into a SQLite database (drops.ps1 load runs this).
 
 Safe to run while workers are still writing: it only loads seeds whose rows are complete, remembers how far
-it got in each file, and picks up from there on the next run.
+it got in each file, and picks up from there on the next run. Several run folders can go into one database;
+a seed that is already in it is not loaded twice.
 
-    python test/drop_stats/load_drop_stats.py ~/drop-stats-data
+    python test/drop_stats/load_drop_stats.py ~/drop-stats/2026-10-02 ~/drop-stats/2026-10-03 --db ~/drop-stats/drops.db
 
 Text columns are stored once in the `strings` table and referenced by id; query the `items_v` view to get
 them back as text (see query_drop_stats.py).
@@ -38,7 +39,7 @@ ITEM_COLUMNS = [
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS run_info (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;
-CREATE TABLE IF NOT EXISTS load_state (worker TEXT PRIMARY KEY, games_offset INTEGER, items_offset INTEGER) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS load_state (games_file TEXT PRIMARY KEY, games_offset INTEGER, items_offset INTEGER, git_rev TEXT) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS strings (id INTEGER PRIMARY KEY, text TEXT NOT NULL UNIQUE);
 CREATE INDEX IF NOT EXISTS strings_nocase ON strings (text COLLATE NOCASE);
 CREATE TABLE IF NOT EXISTS hung_levels (game_seed INTEGER, dlvl INTEGER, set_level INTEGER, level TEXT, PRIMARY KEY (game_seed, dlvl, set_level)) WITHOUT ROWID;
@@ -116,10 +117,10 @@ def parse_row(line):
     return next(csv.reader([line]))
 
 
-def load_worker(db, strings, out_dir, worker):
-    games_path = os.path.join(out_dir, f'games_{worker}.csv')
+def load_worker(db, strings, out_dir, worker, git_rev):
+    games_path = os.path.abspath(os.path.join(out_dir, f'games_{worker}.csv'))
     items_path = os.path.join(out_dir, f'items_{worker}.csv')
-    state = db.execute('SELECT games_offset, items_offset FROM load_state WHERE worker = ?', (worker,)).fetchone()
+    state = db.execute('SELECT games_offset, items_offset FROM load_state WHERE games_file = ?', (games_path,)).fetchone()
     games_offset, items_offset = state if state else (0, 0)
 
     # The games row for Hell is written last for each seed and carries the items file size after that seed.
@@ -141,8 +142,11 @@ def load_worker(db, strings, out_dir, worker):
     if not games_rows:
         return 0
 
-    db.executemany('INSERT OR REPLACE INTO games VALUES (?, ?, ?, ?, ?, ?)',
-                   [(int(r[0]), int(r[1]), r[2], r[3], r[4], int(r[5])) for r in games_rows])
+    # Overlapping runs can contain the same seed; keep the copy that was loaded first.
+    known = {(int(r[0]), int(r[1])) for r in games_rows
+             if db.execute('SELECT 1 FROM games WHERE game_seed = ? AND difficulty = ?', (int(r[0]), int(r[1]))).fetchone()}
+    db.executemany('INSERT INTO games VALUES (?, ?, ?, ?, ?, ?)',
+                   [(int(r[0]), int(r[1]), r[2], r[3], r[4], int(r[5])) for r in games_rows if (int(r[0]), int(r[1])) not in known])
 
     placeholders = ', '.join('?' * len(ITEM_COLUMNS))
     insert = f'INSERT INTO items ({", ".join(ITEM_COLUMNS)}) VALUES ({placeholders})'
@@ -155,6 +159,8 @@ def load_worker(db, strings, out_dir, worker):
         if row[0] == 'game_seed':
             continue
         values = dict(zip(ITEM_COLUMNS, row))
+        if (int(values['game_seed']), int(values['difficulty'])) in known:
+            continue
         batch.append(tuple(
             strings.id(values[c]) if c in TEXT_COLUMNS else (int(values[c]) if values[c] != '' else None)
             for c in ITEM_COLUMNS))
@@ -165,7 +171,7 @@ def load_worker(db, strings, out_dir, worker):
     db.executemany(insert, batch)
     loaded += len(batch)
 
-    db.execute('INSERT OR REPLACE INTO load_state VALUES (?, ?, ?)', (worker, games_end, items_end))
+    db.execute('INSERT OR REPLACE INTO load_state VALUES (?, ?, ?, ?)', (games_path, games_end, items_end, git_rev))
     return loaded
 
 
@@ -178,12 +184,13 @@ def load_hung_levels(db, out_dir):
 
 
 def load_run_info(db, out_dir):
+    """Checks that the run's settings match the database's and returns the run's git revision."""
     info = {}
     for path in sorted(glob.glob(os.path.join(out_dir, 'run_info_*.txt'))):
         with open(path, encoding='utf-8') as f:
             for line in f:
                 key, _, value = line.strip().partition('=')
-                if key in ('worker', 'first_seed', 'seed_count', 'seed_step'):
+                if key in ('worker', 'first_seed', 'seed_count', 'seed_step', 'git_rev'):
                     continue
                 if key in info and info[key] != value:
                     sys.exit(f'{path}: {key}={value} differs from other workers ({info[key]}); these runs must not share a database')
@@ -193,31 +200,37 @@ def load_run_info(db, out_dir):
         if key in existing and existing[key] != value:
             sys.exit(f'run_info {key}={value} differs from the database ({existing[key]}); use a separate database')
     db.executemany('INSERT OR REPLACE INTO run_info VALUES (?, ?)', info.items())
+    git_rev = ''
+    for path in glob.glob(os.path.join(out_dir, 'run_info_*.txt')):
+        with open(path, encoding='utf-8') as f:
+            git_rev = next((line.strip()[len('git_rev='):] for line in f if line.startswith('git_rev=')), git_rev)
+    return git_rev
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('out_dir', help='folder the workers write to')
-    parser.add_argument('--db', help='database path (default: <out_dir>/drops.db)')
+    parser.add_argument('out_dirs', nargs='+', help='folders the workers write to')
+    parser.add_argument('--db', help='database path (default: drops.db in the first folder)')
     args = parser.parse_args()
 
-    db_path = args.db or os.path.join(args.out_dir, 'drops.db')
+    db_path = args.db or os.path.join(args.out_dirs[0], 'drops.db')
     db = sqlite3.connect(db_path)
     db.execute('PRAGMA journal_mode = WAL')
     db.execute('PRAGMA synchronous = NORMAL')
     db.executescript(SCHEMA)
-    load_run_info(db, args.out_dir)
-    load_hung_levels(db, args.out_dir)
     strings = Strings(db)
 
     started = time.time()
     total = 0
-    for games_path in sorted(glob.glob(os.path.join(args.out_dir, 'games_*.csv'))):
-        worker = os.path.basename(games_path)[len('games_'):-len('.csv')]
-        loaded = load_worker(db, strings, args.out_dir, worker)
-        db.commit()
-        total += loaded
-        print(f'worker {worker}: {loaded:,} item rows', flush=True)
+    for out_dir in args.out_dirs:
+        git_rev = load_run_info(db, out_dir)
+        load_hung_levels(db, out_dir)
+        for games_path in sorted(glob.glob(os.path.join(out_dir, 'games_*.csv'))):
+            worker = os.path.basename(games_path)[len('games_'):-len('.csv')]
+            loaded = load_worker(db, strings, out_dir, worker, git_rev)
+            db.commit()
+            total += loaded
+            print(f'{os.path.basename(os.path.normpath(out_dir))} worker {worker}: {loaded:,} item rows', flush=True)
 
     print('updating indexes...', flush=True)
     for statement in INDEXES:

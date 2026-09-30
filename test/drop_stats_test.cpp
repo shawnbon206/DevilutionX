@@ -922,7 +922,7 @@ TEST_F(DropStats, TraceSeed)
 	}
 }
 
-// One worker of the long simulation run, driven by environment variables (see test/drop_stats/run_drop_stats.ps1):
+// One worker of the long simulation run, driven by environment variables (see test/drop_stats/drops.ps1):
 // DROPSTATS_OUT_DIR, DROPSTATS_WORKER, DROPSTATS_FIRST_SEED, DROPSTATS_SEED_COUNT, optional DROPSTATS_SEED_STEP
 // (every n-th seed, so workers can interleave), DROPSTATS_STOP_AT (unix time)
 // and DROPSTATS_GIT_REV. Rerunning with the same settings resumes after the last complete seed.

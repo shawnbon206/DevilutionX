@@ -1,7 +1,10 @@
 """Searches the drop database for items with wanted affixes and reports how often and where they drop.
 
-Rings or amulets whose prefix and suffix are both on the lists:
-    python test/drop_stats/query_drop_stats.py ~/drop-stats-data/drops.db --type ring amulet --prefix "Dragon's" Gold Obsidian --suffix "the Zodiac" Perfection Life
+Usually run through drops.ps1 find, which fills in the database and the day window. Directly:
+    python test/drop_stats/query_drop_stats.py ~/drop-stats/drops.db --type ring amulet --prefix "Dragon's" Gold Obsidian --suffix "the Zodiac" Perfection Life
+
+For the day you play, allowing games created up to 5 days earlier or 1 day later:
+    ... --day 2026-10-03 --before 5 --after 1
 
 Only one side given means only that side has to match; --either accepts an item that matches either list.
 Names are case-insensitive and a leading "of " on suffixes is ignored.
@@ -69,12 +72,14 @@ def main():
     parser.add_argument('--min-prefix-value', type=int, help='minimum first number of the prefix, e.g. 150 for +150%% damage')
     parser.add_argument('--min-suffix-value', type=int, help='minimum first number of the suffix')
     parser.add_argument('--day', help='only games created on this local date, YYYY-MM-DD')
+    parser.add_argument('--before', type=int, default=0, help='with --day, also games created up to this many days earlier')
+    parser.add_argument('--after', type=int, default=0, help='with --day, also games created up to this many days later')
     parser.add_argument('--seeds', type=int, default=20, help='how many matching game seeds to list')
     parser.add_argument('--sql', action='store_true', help='print the SQL condition used')
     args = parser.parse_args()
 
     if not os.path.exists(args.db):
-        sys.exit(f'{args.db} not found; run load_drop_stats.py first')
+        sys.exit(f"{args.db} not found; run 'drops.ps1 load' first")
     db = sqlite3.connect(args.db)
 
     conditions = []
@@ -100,14 +105,26 @@ def main():
     if not conditions:
         sys.exit('give at least one of --type, --base, --prefix, --suffix, --unique')
     games_where = 'TRUE'
+    day_start = None
     if args.day:
         day = datetime.datetime.strptime(args.day, '%Y-%m-%d')
-        start = int(day.astimezone().timestamp())
-        end = int((day + datetime.timedelta(days=1)).astimezone().timestamp())
+        day_start = int(day.astimezone().timestamp())
+        first = day - datetime.timedelta(days=args.before)
+        last = day + datetime.timedelta(days=args.after)
+        start = int(first.astimezone().timestamp())
+        end = int((last + datetime.timedelta(days=1)).astimezone().timestamp())
         games_where = f'game_seed >= {start} AND game_seed < {end}'
         conditions.append(games_where)
-        if db.execute(f'SELECT COUNT(*) FROM games WHERE {games_where}').fetchone()[0] == 0:
-            sys.exit(f'no games from {args.day} in {args.db}; simulate it with run_drop_stats.ps1 -Day {args.day}')
+        missing = []
+        for offset in range(-args.before, args.after + 1):
+            date = day + datetime.timedelta(days=offset)
+            date_start = int(date.astimezone().timestamp())
+            date_end = int((date + datetime.timedelta(days=1)).astimezone().timestamp())
+            simulated = db.execute(f'SELECT COUNT(DISTINCT game_seed) FROM games WHERE game_seed >= {date_start} AND game_seed < {date_end}').fetchone()[0]
+            if simulated < date_end - date_start:
+                missing.append(f'{date:%Y-%m-%d} ({simulated / (date_end - date_start):.0%} loaded)')
+        if missing:
+            print(f"note: not fully simulated and loaded yet: {', '.join(missing)}; see 'drops.ps1 status'\n")
     where = ' AND '.join(conditions)
     if args.sql:
         print(f'WHERE {where}\n')
@@ -130,8 +147,10 @@ def main():
     print_breakdown(db, 'Source', "v.source_kind || ': ' || v.source_name", 25)
 
     print(f'\nGame seeds with the most matches (first {args.seeds})')
+    # On equal matches, games from the play day itself come first, then the nearest days.
+    closeness = f'ABS(game_seed - {day_start} - 43200)' if day_start is not None else 'game_seed'
     seeds = db.execute(f"""SELECT game_seed, difficulty, COUNT(*) FROM hits GROUP BY game_seed, difficulty
-                           ORDER BY COUNT(*) DESC, game_seed LIMIT {args.seeds}""").fetchall()
+                           ORDER BY COUNT(*) DESC, {closeness} LIMIT {args.seeds}""").fetchall()
     for game_seed, difficulty, count in seeds:
         hung, = db.execute('SELECT hung_levels FROM games WHERE game_seed = ? AND difficulty = ?', (game_seed, difficulty)).fetchone()
         warning = f'  WARNING: the game hangs entering {hung}, stay out of it' if hung else ''
