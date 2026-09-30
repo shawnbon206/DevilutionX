@@ -53,15 +53,6 @@ def affix_condition(db, kind, specs, min_roll):
     return condition if min_roll is None else f'({condition} AND {kind}_roll >= {min_roll})'
 
 
-def storybook_number(game_seed):
-    """What /seedinfo shows as "Storybook" in a game with this seed: glSeedTbl[16] (multi.cpp NetInit)."""
-    state = game_seed
-    for _ in range(17):
-        state = (state * 0x015A4E35 + 1) & 0xFFFFFFFF
-    signed = state - (1 << 32) if state >= (1 << 31) else state
-    return signed if signed == -(1 << 31) else abs(signed)
-
-
 def creation_time(game_seed):
     """The game seed is the host's clock (seconds since 1970 UTC) when the game is created."""
     return datetime.datetime.fromtimestamp(game_seed).strftime('%Y-%m-%d %I:%M:%S %p')
@@ -171,7 +162,7 @@ def main():
         hung, = db.execute('SELECT hung_levels FROM games WHERE game_seed = ? AND difficulty = ?', (game_seed, difficulty)).fetchone()
         warning = f'  WARNING: the game hangs entering {hung}, stay out of it' if hung else ''
         print(f'  seed {game_seed} ({DIFFICULTIES[difficulty]}): {count}{warning}')
-        print(f'      create the game at {creation_time(game_seed)} local time; /seedinfo then shows Storybook: {storybook_number(game_seed)}')
+        print(f'      created {creation_time(game_seed)}')
         rows = db.execute("""SELECT v.name, v.prefix_text, v.suffix_text, COALESCE(v.set_level, 'dlvl ' || v.dlvl), v.source_kind, v.source_name
                              FROM hits h JOIN items_v v ON v.item_id = h.item_id WHERE h.game_seed = ? AND h.difficulty = ?""", (game_seed, difficulty))
         for name, prefix_text, suffix_text, where_found, kind, source in rows:

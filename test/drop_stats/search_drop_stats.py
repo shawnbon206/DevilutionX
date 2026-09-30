@@ -16,7 +16,7 @@ import subprocess
 import sys
 import time
 
-from query_drop_stats import DIFFICULTIES, creation_time, storybook_number
+from query_drop_stats import DIFFICULTIES, creation_time
 
 WORKERS = 20
 BELOW_NORMAL_PRIORITY_CLASS = 0x4000
@@ -217,7 +217,7 @@ def describe(item):
 def print_game(seed, difficulty, items, hung):
     warning = f'  WARNING: the game hangs entering {hung}, stay out of it' if hung else ''
     print(f'  seed {seed} ({DIFFICULTIES[difficulty]}): {len(items)} matching{warning}')
-    print(f'      created {creation_time(seed)}; /seedinfo shows Storybook: {storybook_number(seed)}')
+    print(f'      created {creation_time(seed)}')
     for item in items:
         print(f'      {describe(item)}')
 
