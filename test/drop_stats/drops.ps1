@@ -3,8 +3,13 @@
 Finds DevilutionX 1.5.5 multiplayer game seeds that drop the items you want.
 
 .DESCRIPTION
-A game's seed is the second it was created, so each day has 86,400 seeds. Simulate the days around the
-day you play, load them, then search:
+A game's seed is the second it was created. Quick search from right now, printing matches as they come:
+
+  drops.ps1 search 5 --type ring --prefix Gold --suffix Life
+                                       Simulate seeds from the current second on for 5 minutes (about
+                                       10,000 seeds). Same wishlist options as find.
+
+For statistics, or to pick from whole days (86,400 seeds each), simulate days, load them, then find:
 
   drops.ps1 simulate 2026-09-30 14     Simulate 14 days starting Sep 30, in the background (about 40 min
                                        per day, days finish in order). Run it again to continue after stop.
@@ -20,7 +25,7 @@ The simulation uses the drop_stats_test.exe from the current build, copied when 
 #>
 param(
 	[Parameter(Position = 0)]
-	[ValidateSet('simulate', 'status', 'stop', 'load', 'find', 'supervise')]
+	[ValidateSet('search', 'simulate', 'status', 'stop', 'load', 'find', 'supervise')]
 	[string]$Command,
 	[Parameter(Position = 1, ValueFromRemainingArguments)]
 	[string[]]$Arguments
@@ -120,20 +125,41 @@ function Invoke-Day([string]$date) {
 	Write-Log "finished $date"
 }
 
+# Copies the simulator from the build so the build folder stays free for rebuilding.
+function Copy-Simulator([string]$dest) {
+	New-Item -ItemType Directory -Force $Root, $dest | Out-Null
+	Copy-Item (Join-Path $BuildDir 'drop_stats_test.exe') $dest -Force
+	Copy-Item (Join-Path $BuildDir '*.dll') $dest -Force
+	Copy-Item -Recurse -Force (Join-Path $BuildDir 'assets') $dest
+	$rev = (git -C $Repo rev-parse HEAD).Trim()
+	if (git -C $Repo status --porcelain --untracked-files=no) { $rev += '-dirty' }
+	Set-Content (Join-Path $dest 'git_rev.txt') $rev
+	$env:DROPSTATS_NAMES_FILE = Join-Path $dest 'names.csv'
+	& (Join-Path $dest 'drop_stats_test.exe') --gtest_filter=DropStats.DumpNames | Out-Null
+	Remove-Item Env:DROPSTATS_NAMES_FILE
+}
+
 switch ($Command) {
+	'search' {
+		$searchBin = Join-Path $Root 'search-bin'
+		if (Get-Process -Name drop_stats_test -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$searchBin*" }) {
+			throw 'Another search is still running.'
+		}
+		Copy-Simulator $searchBin
+		$searchArgs = @($Arguments)
+		if ($searchArgs.Count -ge 1 -and $searchArgs[0] -match '^\d+(\.\d+)?$') {
+			$searchArgs = @('--minutes', $searchArgs[0]) + @($searchArgs | Select-Object -Skip 1)
+		}
+		$env:DROPSTATS_GIT_REV = Get-Content (Join-Path $searchBin 'git_rev.txt')
+		python (Join-Path $PSScriptRoot 'search_drop_stats.py') --bin $searchBin @searchArgs
+	}
 	'simulate' {
 		if ($Arguments.Count -lt 1) { throw 'Usage: drops.ps1 simulate <yyyy-MM-dd> [days]' }
 		$first = [DateTime]::ParseExact($Arguments[0], 'yyyy-MM-dd', $null)
 		$days = if ($Arguments.Count -ge 2) { [int]$Arguments[1] } else { 1 }
 		if (Get-Supervisor) { throw "Already simulating. Use 'drops.ps1 status', or 'drops.ps1 stop' first." }
 		if (Get-Workers) { throw "Workers from an earlier run are still running. Use 'drops.ps1 stop' first." }
-		New-Item -ItemType Directory -Force $Root, $Bin | Out-Null
-		Copy-Item (Join-Path $BuildDir 'drop_stats_test.exe') $Bin -Force
-		Copy-Item (Join-Path $BuildDir '*.dll') $Bin -Force
-		Copy-Item -Recurse -Force (Join-Path $BuildDir 'assets') $Bin
-		$rev = (git -C $Repo rev-parse HEAD).Trim()
-		if (git -C $Repo status --porcelain --untracked-files=no) { $rev += '-dirty' }
-		Set-Content (Join-Path $Bin 'git_rev.txt') $rev
+		Copy-Simulator $Bin
 		$dates = @(for ($d = 0; $d -lt $days; $d++) { $first.AddDays($d).ToString('yyyy-MM-dd') })
 		$supervisor = Start-Process pwsh -ArgumentList (@('-NoProfile', '-File', $PSCommandPath, 'supervise') + $dates) -WindowStyle Hidden -PassThru
 		Set-Content $PidFile $supervisor.Id

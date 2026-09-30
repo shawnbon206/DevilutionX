@@ -896,6 +896,26 @@ TEST_F(DropStats, DryRunTimingAndSample)
 	std::printf("per game on Hell (all reachable levels): %.1f ms\n", totalMs / Games);
 }
 
+// Writes every prefix, suffix, unique and base item name to DROPSTATS_NAMES_FILE, so searches can
+// reject a misspelled name before simulating anything.
+TEST_F(DropStats, DumpNames)
+{
+	const char *path = std::getenv("DROPSTATS_NAMES_FILE");
+	if (path == nullptr)
+		GTEST_SKIP() << "DROPSTATS_NAMES_FILE not set";
+	std::ofstream names(path, std::ios::binary | std::ios::trunc);
+	names << "kind,name\n";
+	for (int j = 0; ItemPrefixes[j].power.type != IPL_INVALID; j++)
+		names << "prefix," << CsvField(ItemPrefixes[j].PLName) << "\n";
+	for (int j = 0; ItemSuffixes[j].power.type != IPL_INVALID; j++)
+		names << "suffix," << CsvField(ItemSuffixes[j].PLName) << "\n";
+	for (int j = 0; UniqueItems[j].UIItemId != UITYPE_INVALID; j++)
+		names << "unique," << CsvField(UniqueItems[j].UIName) << "\n";
+	for (int j = IDI_GOLD; j <= IDI_LAST; j++)
+		names << "base," << CsvField(AllItemsList[j].iName) << "\n";
+	ASSERT_TRUE(names) << "could not write " << path;
+}
+
 // Prints each step for one game seed, to find where a seed that stalls a worker gets stuck.
 TEST_F(DropStats, TraceSeed)
 {
