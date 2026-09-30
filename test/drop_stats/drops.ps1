@@ -18,7 +18,8 @@ A game's seed is the second it was created (Diablo mode, full quests, randomized
 Search from right now, printing matching games as they are found:
   drops.ps1 search <minutes> <wishlist>
   drops.ps1 search 5 --type ring amulet --prefix Obsidian Gold "Dragon's" --suffix life "the zodiac" --min-roll 80
-  About 39 seeds a second; Ctrl+C stops early and still prints the best seeds.
+  <minutes> 0 searches until Ctrl+C, e.g. in the background while you play. Ctrl+C always stops
+  and prints the best seeds. About 39 seeds a second on 20 workers; --workers 10 leaves more CPU free.
 
 Simulate whole days, then search them instantly (and get odds, e.g. does a combination ever drop):
   drops.ps1 simulate <yyyy-MM-dd> [days]   Runs in the background, about 40 minutes per day.

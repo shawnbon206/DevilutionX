@@ -3,31 +3,45 @@
 Usually run through drops.ps1 search, which prepares the simulator. Directly:
     python test/drop_stats/search_drop_stats.py --bin ~/drop-stats/search-bin --minutes 5 --type ring --prefix Gold --suffix Life
 
+--minutes 0 searches until Ctrl+C. Ctrl+C always stops and still prints the best seeds found so far.
+The workers send their items straight to this script, so a search can run for hours without using disk.
+
 The wishlist options are the same as for query_drop_stats.py; a prefix or suffix can carry a minimum for the
-first number it shows, e.g. --prefix Obsidian:38 Gold:28. Ctrl+C stops early and still prints the summary.
+first number it shows, e.g. --prefix Obsidian:38 Gold:28.
 """
 
 import argparse
 import csv
-import datetime
 import os
+import queue
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 
 from query_drop_stats import DIFFICULTIES, creation_time
 
-WORKERS = 20
 BELOW_NORMAL_PRIORITY_CLASS = 0x4000
 CREATE_NO_WINDOW = 0x08000000
+
+ITEM_HEADER = [
+    'game_seed', 'difficulty', 'dlvl', 'set_level', 'source_kind', 'source_name', 'source_index',
+    'item_type', 'base_item', 'item_level', 'quality',
+    'prefix', 'prefix_text', 'prefix_value', 'prefix_value2',
+    'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
+    'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
+    'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
+]
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--bin', required=True, help='folder with drop_stats_test.exe and its DLLs')
-    parser.add_argument('--out', help='folder for the workers\' files (default: a new folder next to --bin)')
-    parser.add_argument('--minutes', type=float, default=5, help='how long to search')
+    parser.add_argument('--minutes', type=float, default=5, help='how long to search; 0 searches until Ctrl+C')
+    parser.add_argument('--workers', type=int, default=20, help='simulation processes; fewer leaves more CPU for playing (default 20)')
     parser.add_argument('--start', type=int, help='first seed (default: the current second)')
     parser.add_argument('--type', nargs='+', default=[], help='item types: ring amulet sword axe mace bow staff helm shield light_armor medium_armor heavy_armor')
     parser.add_argument('--base', nargs='+', default=[], help='base items, e.g. Maul "Great Axe"')
@@ -38,10 +52,11 @@ def parse_args():
     parser.add_argument('--difficulty', type=int, choices=[0, 1, 2], help='0 Normal, 1 Nightmare, 2 Hell (default: all)')
     parser.add_argument('--min-roll', type=int, help='each wanted prefix and suffix must have rolled at least this far up its range, 0-100; 80 means the top fifth')
     parser.add_argument('--seeds', type=int, default=20, help='how many of the best seeds to list at the end')
-    parser.add_argument('--keep', action='store_true', help='keep the workers\' files (all simulated items) instead of deleting them')
     args = parser.parse_args()
     if not (args.type or args.base or args.prefix or args.suffix or args.unique):
         parser.error('give at least one of --type, --base, --prefix, --suffix, --unique')
+    if args.workers < 1:
+        parser.error('--workers must be at least 1')
     return args
 
 
@@ -118,94 +133,50 @@ class Wishlist:
 
 
 class Worker:
-    def __init__(self, index, args, out_dir, first_seed, stop_at):
+    """One simulation process. Its rows arrive on stdout: item rows start with "I,", game rows with "G,"."""
+
+    def __init__(self, index, args, hung_dir, first_seed, stop_at, lines):
         self.index = index
         self.args = args
-        self.out_dir = out_dir
-        self.first_seed = first_seed
+        self.hung_dir = hung_dir
+        self.next_seed = first_seed + index
         self.stop_at = stop_at
+        self.lines = lines
         self.restarts = 0
-        self.games_offset = 0
-        self.items_offset = 0
+        self.finished = False
         self.process = None
-        self.log_path = None
         self.start()
 
     def start(self):
-        env = dict(os.environ,
-                   DROPSTATS_OUT_DIR=self.out_dir, DROPSTATS_WORKER=str(self.index),
-                   DROPSTATS_FIRST_SEED=str(self.first_seed + self.index), DROPSTATS_SEED_STEP=str(WORKERS),
-                   DROPSTATS_SEED_COUNT='100000000', DROPSTATS_STOP_AT=str(self.stop_at))
-        self.log_path = os.path.join(self.out_dir, f'worker_{self.index}_{self.restarts}.log')
-        with open(self.log_path, 'wb') as log:
-            self.process = subprocess.Popen([os.path.join(self.args.bin, 'drop_stats_test.exe'), '--gtest_filter=DropStats.Record'],
-                                            cwd=self.args.bin, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                            creationflags=BELOW_NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW)
+        env = dict(os.environ, DROPSTATS_STDOUT='1',
+                   DROPSTATS_OUT_DIR=self.hung_dir, DROPSTATS_WORKER=str(self.index),
+                   DROPSTATS_FIRST_SEED=str(self.next_seed), DROPSTATS_SEED_STEP=str(self.args.workers),
+                   DROPSTATS_SEED_COUNT='100000000')
+        if self.stop_at is not None:
+            env['DROPSTATS_STOP_AT'] = str(self.stop_at)
+        self.process = subprocess.Popen([os.path.join(self.args.bin, 'drop_stats_test.exe'), '--gtest_filter=DropStats.Record'],
+                                        cwd=self.args.bin, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        text=True, encoding='utf-8', errors='replace',
+                                        creationflags=BELOW_NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW)
+        threading.Thread(target=self.read, args=(self.process,), daemon=True).start()
 
-    def check(self):
-        """Returns False once the worker is done; restarts it if it stopped early (a level that hangs)."""
-        if self.process.poll() is None:
-            return True
-        with open(self.log_path, encoding='utf-8', errors='replace') as log:
-            if any(line.startswith(f'worker {self.index} finished') for line in log):
-                return False
-        if self.restarts >= 20:
-            print(f'worker {self.index} keeps stopping early, giving up on it; see {self.log_path}')
+    def read(self, process):
+        for line in process.stdout:
+            self.lines.put((self, line))
+        self.lines.put((self, None))
+
+    def ended(self):
+        """Called when the process's output ends. Returns True if it was restarted after a level that hangs."""
+        self.process.wait()
+        if self.finished:
             return False
+        if self.restarts >= 20:
+            print(f'worker {self.index} keeps stopping early, giving up on it')
+            return False
+        # The worker listed the level that hung in the hung folder and skips it on the same seed now.
         self.restarts += 1
         self.start()
         return True
-
-
-def complete_lines(path, offset):
-    if not os.path.exists(path):
-        return
-    with open(path, 'rb') as f:
-        f.seek(offset)
-        for raw in f:
-            if not raw.endswith(b'\n'):
-                break
-            offset += len(raw)
-            yield raw.decode('utf-8'), offset
-
-
-def read_new(worker, games, hits, wishlist):
-    """Reads the seeds a worker finished since the last call. Returns how many seeds that was."""
-    games_path = os.path.join(worker.out_dir, f'games_{worker.index}.csv')
-    items_path = os.path.join(worker.out_dir, f'items_{worker.index}.csv')
-    items_end = worker.items_offset
-    finished = []
-    for line, end in complete_lines(games_path, worker.games_offset):
-        row = next(csv.reader([line]))
-        if row[0] == 'game_seed':
-            worker.games_offset = end
-            continue
-        games[(int(row[0]), int(row[1]))] = row[4]
-        if row[1] == '2':
-            items_end = int(row[6])
-            worker.games_offset = end
-            finished.append(int(row[0]))
-    for line, end in complete_lines(items_path, worker.items_offset):
-        if end > items_end:
-            break
-        worker.items_offset = end
-        row = next(csv.reader([line]))
-        if row[0] == 'game_seed':
-            continue
-        values = dict(zip(ITEM_HEADER, row))
-        if wishlist.matches(values):
-            hits.setdefault((int(values['game_seed']), int(values['difficulty'])), []).append(values)
-    return finished
-
-
-ITEM_HEADER = [
-    'game_seed', 'difficulty', 'dlvl', 'set_level', 'source_kind', 'source_name', 'source_index',
-    'item_type', 'base_item', 'item_level', 'quality',
-    'prefix', 'prefix_text', 'prefix_value', 'prefix_value2',
-    'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
-    'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
-    'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
-]
 
 
 def describe(item):
@@ -227,30 +198,53 @@ def main():
     check_names(args)
     wishlist = Wishlist(args)
     first_seed = args.start if args.start is not None else int(time.time())
-    stop_at = int(time.time() + args.minutes * 60)
-    out_dir = args.out or os.path.join(os.path.dirname(os.path.normpath(args.bin)), 'search', datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
-    os.makedirs(out_dir, exist_ok=True)
+    stop_at = int(time.time() + args.minutes * 60) if args.minutes > 0 else None
+    hung_dir = tempfile.mkdtemp(prefix='drops-search-')
+    # Ctrl+Break stops the search the same way Ctrl+C does.
+    signal.signal(signal.SIGBREAK, signal.default_int_handler)
 
-    print(f'Searching from {creation_time(first_seed)} for {args.minutes:g} minutes on {WORKERS} workers; Ctrl+C stops early.\n')
-    workers = [Worker(i, args, out_dir, first_seed, stop_at) for i in range(WORKERS)]
-    games = {}
+    how_long = f'for {args.minutes:g} minutes' if stop_at else 'until Ctrl+C'
+    print(f'Searching from {creation_time(first_seed)} {how_long} on {args.workers} workers; Ctrl+C stops and prints the best seeds.\n', flush=True)
+    lines = queue.Queue()
+    workers = [Worker(i, args, hung_dir, first_seed, stop_at, lines) for i in range(args.workers)]
+    running = len(workers)
+    pending = {}
     hits = {}
-    reported = set()
+    hung_levels = {}
+    searched = [0, 0, 0]
     seeds_done = 0
+    last_seed = first_seed
     last_progress = time.time()
     try:
-        running = list(workers)
-        while running:
-            time.sleep(2)
-            running = [w for w in running if w.check()]
-            for worker in workers:
-                seeds_done += len(read_new(worker, games, hits, wishlist))
-            for key in sorted(set(hits) - reported):
-                if key in games:
-                    print_game(key[0], key[1], hits[key], games[key])
-                    reported.add(key)
-            if time.time() - last_progress >= 30:
-                print(f'... {seeds_done:,} seeds searched, {len({k[0] for k in hits}):,} with a match')
+        while running > 0:
+            try:
+                worker, line = lines.get(timeout=1)
+            except queue.Empty:
+                line = ''
+                worker = None
+            if worker is not None and line is None:
+                if not worker.ended():
+                    running -= 1
+            elif line.startswith('I,'):
+                row = dict(zip(ITEM_HEADER, next(csv.reader([line[2:]]))))
+                if wishlist.matches(row):
+                    pending.setdefault((int(row['game_seed']), int(row['difficulty'])), []).append(row)
+            elif line.startswith('G,'):
+                row = next(csv.reader([line[2:]]))
+                seed, difficulty, hung = int(row[0]), int(row[1]), row[4]
+                searched[difficulty] += 1
+                if (seed, difficulty) in pending:
+                    hits[(seed, difficulty)] = pending.pop((seed, difficulty))
+                    hung_levels[(seed, difficulty)] = hung
+                    print_game(seed, difficulty, hits[(seed, difficulty)], hung)
+                if difficulty == 2:
+                    worker.next_seed = seed + args.workers
+                    seeds_done += 1
+                    last_seed = max(last_seed, seed)
+            elif worker is not None and line.startswith(f'worker {worker.index} finished'):
+                worker.finished = True
+            if time.time() - last_progress >= 60:
+                print(f'... {seeds_done:,} seeds searched, up to games created {creation_time(last_seed)}; {len({k[0] for k in hits}):,} with a match', flush=True)
                 last_progress = time.time()
     except KeyboardInterrupt:
         print('\nStopping...')
@@ -258,29 +252,20 @@ def main():
         for worker in workers:
             if worker.process.poll() is None:
                 worker.process.kill()
-        for worker in workers:
-            worker.process.wait()
-    for worker in workers:
-        seeds_done += len(read_new(worker, games, hits, wishlist))
+        shutil.rmtree(hung_dir, ignore_errors=True)
 
-    last_seed = max((k[0] for k in games), default=first_seed)
     print(f'\nSearched {seeds_done:,} seeds, games created {creation_time(first_seed)} to {creation_time(last_seed)}.')
     for difficulty in range(3):
         if args.difficulty is not None and difficulty != args.difficulty:
             continue
-        searched = sum(1 for k in games if k[1] == difficulty)
         matching = sum(1 for k in hits if k[1] == difficulty)
-        odds = f'1 in {searched / matching:,.0f}' if matching else 'none'
-        print(f'  {DIFFICULTIES[difficulty]:<10} {matching:,} of {searched:,} games have a match ({odds})')
+        odds = f'1 in {searched[difficulty] / matching:,.0f}' if matching else 'none'
+        print(f'  {DIFFICULTIES[difficulty]:<10} {matching:,} of {searched[difficulty]:,} games have a match ({odds})')
     if hits:
         print(f'\nBest seeds (up to {args.seeds}):')
         best = sorted(hits, key=lambda k: (-len(hits[k]), k[0]))[:args.seeds]
         for key in best:
-            print_game(key[0], key[1], hits[key], games.get(key, ''))
-    if args.keep:
-        print(f'\nWorker files are in {out_dir}; load_drop_stats.py can put them in a database.')
-    else:
-        shutil.rmtree(out_dir, ignore_errors=True)
+            print_game(key[0], key[1], hits[key], hung_levels.get(key, ''))
 
 
 if __name__ == '__main__':

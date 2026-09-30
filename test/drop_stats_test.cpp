@@ -980,6 +980,8 @@ TEST_F(DropStats, TraceSeed)
 // DROPSTATS_OUT_DIR, DROPSTATS_WORKER, DROPSTATS_FIRST_SEED, DROPSTATS_SEED_COUNT, optional DROPSTATS_SEED_STEP
 // (every n-th seed, so workers can interleave), DROPSTATS_STOP_AT (unix time)
 // and DROPSTATS_GIT_REV. Rerunning with the same settings resumes after the last complete seed.
+// With DROPSTATS_STDOUT set the rows go to stdout for a live search instead of to files: item rows start
+// with "I," and game rows with "G,". Nothing is resumed then; the caller restarts from the last seed it saw.
 TEST_F(DropStats, Record)
 {
 	const char *outDir = std::getenv("DROPSTATS_OUT_DIR");
@@ -992,22 +994,25 @@ TEST_F(DropStats, Record)
 	const uint64_t seedStep = std::max<uint64_t>(EnvNumber("DROPSTATS_SEED_STEP").value_or(1), 1);
 	const std::optional<uint64_t> stopAt = EnvNumber("DROPSTATS_STOP_AT");
 	const char *gitRev = std::getenv("DROPSTATS_GIT_REV");
+	const bool toStdout = std::getenv("DROPSTATS_STDOUT") != nullptr;
 
 	const std::string base = StrCat(outDir, "/");
 	const std::string itemsPath = StrCat(base, "items_", worker, ".csv");
 	const std::string gamesPath = StrCat(base, "games_", worker, ".csv");
 
 	uint64_t seed = firstSeed;
-	if (const std::optional<ResumePoint> resume = FindResumePoint(gamesPath)) {
-		seed = resume->lastSeed + seedStep;
-		std::filesystem::resize_file(itemsPath, resume->itemsEnd);
-		std::filesystem::resize_file(gamesPath, resume->gamesEnd);
-	} else {
-		std::ofstream(itemsPath, std::ios::binary | std::ios::trunc) << ItemCsvHeader;
-		std::ofstream(gamesPath, std::ios::binary | std::ios::trunc) << GameCsvHeader;
+	if (!toStdout) {
+		if (const std::optional<ResumePoint> resume = FindResumePoint(gamesPath)) {
+			seed = resume->lastSeed + seedStep;
+			std::filesystem::resize_file(itemsPath, resume->itemsEnd);
+			std::filesystem::resize_file(gamesPath, resume->gamesEnd);
+		} else {
+			std::ofstream(itemsPath, std::ios::binary | std::ios::trunc) << ItemCsvHeader;
+			std::ofstream(gamesPath, std::ios::binary | std::ios::trunc) << GameCsvHeader;
+		}
 	}
 
-	{
+	if (!toStdout) {
 		std::ofstream info(StrCat(base, "run_info_", worker, ".txt"), std::ios::binary | std::ios::trunc);
 		info << "version=" << PROJECT_VERSION << "\n"
 		     << "git_rev=" << (gitRev != nullptr ? gitRev : "") << "\n"
@@ -1068,9 +1073,16 @@ TEST_F(DropStats, Record)
 		}
 	});
 
-	uint64_t itemsSize = std::filesystem::file_size(itemsPath);
-	std::ofstream items(itemsPath, std::ios::binary | std::ios::app);
-	std::ofstream games(gamesPath, std::ios::binary | std::ios::app);
+	uint64_t itemsSize = 0;
+	std::ofstream items;
+	std::ofstream games;
+	if (!toStdout) {
+		itemsSize = std::filesystem::file_size(itemsPath);
+		items.open(itemsPath, std::ios::binary | std::ios::app);
+		games.open(gamesPath, std::ios::binary | std::ios::app);
+	}
+	const string_view itemTag = toStdout ? "I," : "";
+	const string_view gameTag = toStdout ? "G," : "";
 
 	const auto started = std::chrono::steady_clock::now();
 	auto lastReport = started;
@@ -1102,18 +1114,26 @@ TEST_F(DropStats, Record)
 				for (const Drop &drop : DryRunLevelDrops()) {
 					if (drop.item._iMagical == ITEM_QUALITY_NORMAL)
 						continue;
+					itemRows += itemTag;
 					itemRows += ItemCsvRow(gameSeed, difficulty, level, drop);
 					rows++;
 				}
 			}
+			gameRows += gameTag;
 			gameRows += fmt::format("{},{},{},{},{},{},{}\n", gameSeed, static_cast<int>(difficulty), CsvField(quests), CsvField(ReachableSetLevels(levels)), CsvField(hungNames), rows, itemsSize + itemRows.size());
 		}
-		items << itemRows;
-		items.flush();
-		itemsSize += itemRows.size();
-		games << gameRows;
-		games.flush();
-		ASSERT_TRUE(items && games) << "write failed in " << outDir;
+		if (toStdout) {
+			std::fwrite(itemRows.data(), 1, itemRows.size(), stdout);
+			std::fwrite(gameRows.data(), 1, gameRows.size(), stdout);
+			std::fflush(stdout);
+		} else {
+			items << itemRows;
+			items.flush();
+			itemsSize += itemRows.size();
+			games << gameRows;
+			games.flush();
+			ASSERT_TRUE(items && games) << "write failed in " << outDir;
+		}
 		seedsDone++;
 
 		const auto now = std::chrono::steady_clock::now();
