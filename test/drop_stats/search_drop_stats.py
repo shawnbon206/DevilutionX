@@ -152,7 +152,7 @@ class Worker:
     def start(self):
         env = dict(os.environ, DROPSTATS_WORKER=str(self.index),
                    DROPSTATS_FIRST_SEED=str(self.next_seed), DROPSTATS_SEED_STEP=str(self.args.workers),
-                   DROPSTATS_SKIP_LEVELS=';'.join(f'{seed}:{dlvl}:{set_level}' for seed, dlvl, set_level in self.hung))
+                   DROPSTATS_SKIP_LEVELS=';'.join(f'{seed}:{dlvl}:{set_level}' for seed, dlvl, set_level in self.hung if seed == self.next_seed))
         if self.stop_at is not None:
             env['DROPSTATS_STOP_AT'] = str(self.stop_at)
         self.process = subprocess.Popen([os.path.join(self.args.bin, 'drop_stats_test.exe'), '--gtest_filter=DropStats.SearchWorker'],
