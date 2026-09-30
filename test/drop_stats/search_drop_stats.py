@@ -6,24 +6,21 @@ Usually run through drops.ps1 search, which prepares the simulator. Directly:
 --minutes 0 searches until Ctrl+C. Ctrl+C always stops and still prints the best seeds found so far.
 The workers send their items straight to this script, so a search can run for hours without using disk.
 
-The wishlist options are the same as for query_drop_stats.py; a prefix or suffix can carry a minimum for the
-first number it shows, e.g. --prefix Obsidian:38 Gold:28.
+A prefix or suffix can carry a minimum for the first number it shows, e.g. --prefix Obsidian:38 Gold:28.
 """
 
 import argparse
 import csv
+import datetime
 import os
 import queue
-import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 
-from query_drop_stats import DIFFICULTIES, creation_time
-
+DIFFICULTIES = ['Normal', 'Nightmare', 'Hell']
 BELOW_NORMAL_PRIORITY_CLASS = 0x4000
 CREATE_NO_WINDOW = 0x08000000
 
@@ -58,6 +55,11 @@ def parse_args():
     if args.workers < 1:
         parser.error('--workers must be at least 1')
     return args
+
+
+def creation_time(game_seed):
+    """The game seed is the host's clock (seconds since 1970 UTC) when the game is created."""
+    return datetime.datetime.fromtimestamp(game_seed).strftime('%Y-%m-%d %I:%M:%S %p')
 
 
 def split_minimum(spec):
@@ -135,10 +137,10 @@ class Wishlist:
 class Worker:
     """One simulation process. Its rows arrive on stdout: item rows start with "I,", game rows with "G,"."""
 
-    def __init__(self, index, args, hung_dir, first_seed, stop_at, lines):
+    def __init__(self, index, args, first_seed, stop_at, lines, hung):
         self.index = index
         self.args = args
-        self.hung_dir = hung_dir
+        self.hung = hung
         self.next_seed = first_seed + index
         self.stop_at = stop_at
         self.lines = lines
@@ -148,13 +150,12 @@ class Worker:
         self.start()
 
     def start(self):
-        env = dict(os.environ, DROPSTATS_STDOUT='1',
-                   DROPSTATS_OUT_DIR=self.hung_dir, DROPSTATS_WORKER=str(self.index),
+        env = dict(os.environ, DROPSTATS_WORKER=str(self.index),
                    DROPSTATS_FIRST_SEED=str(self.next_seed), DROPSTATS_SEED_STEP=str(self.args.workers),
-                   DROPSTATS_SEED_COUNT='100000000')
+                   DROPSTATS_SKIP_LEVELS=';'.join(f'{seed}:{dlvl}:{set_level}' for seed, dlvl, set_level in self.hung))
         if self.stop_at is not None:
             env['DROPSTATS_STOP_AT'] = str(self.stop_at)
-        self.process = subprocess.Popen([os.path.join(self.args.bin, 'drop_stats_test.exe'), '--gtest_filter=DropStats.Record'],
+        self.process = subprocess.Popen([os.path.join(self.args.bin, 'drop_stats_test.exe'), '--gtest_filter=DropStats.SearchWorker'],
                                         cwd=self.args.bin, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                         text=True, encoding='utf-8', errors='replace',
                                         creationflags=BELOW_NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW)
@@ -173,7 +174,7 @@ class Worker:
         if self.restarts >= 20:
             print(f'worker {self.index} keeps stopping early, giving up on it')
             return False
-        # The worker listed the level that hung in the hung folder and skips it on the same seed now.
+        # The worker reported the level that hung; the restarted one skips it on the same seed.
         self.restarts += 1
         self.start()
         return True
@@ -199,14 +200,14 @@ def main():
     wishlist = Wishlist(args)
     first_seed = args.start if args.start is not None else int(time.time())
     stop_at = int(time.time() + args.minutes * 60) if args.minutes > 0 else None
-    hung_dir = tempfile.mkdtemp(prefix='drops-search-')
     # Ctrl+Break stops the search the same way Ctrl+C does.
     signal.signal(signal.SIGBREAK, signal.default_int_handler)
 
     how_long = f'for {args.minutes:g} minutes' if stop_at else 'until Ctrl+C'
     print(f'Searching from {creation_time(first_seed)} {how_long} on {args.workers} workers; Ctrl+C stops and prints the best seeds.\n', flush=True)
     lines = queue.Queue()
-    workers = [Worker(i, args, hung_dir, first_seed, stop_at, lines) for i in range(args.workers)]
+    hung = []
+    workers = [Worker(i, args, first_seed, stop_at, lines, hung) for i in range(args.workers)]
     running = len(workers)
     pending = {}
     hits = {}
@@ -231,16 +232,19 @@ def main():
                     pending.setdefault((int(row['game_seed']), int(row['difficulty'])), []).append(row)
             elif line.startswith('G,'):
                 row = next(csv.reader([line[2:]]))
-                seed, difficulty, hung = int(row[0]), int(row[1]), row[4]
+                seed, difficulty, skipped = int(row[0]), int(row[1]), row[2]
                 searched[difficulty] += 1
                 if (seed, difficulty) in pending:
                     hits[(seed, difficulty)] = pending.pop((seed, difficulty))
-                    hung_levels[(seed, difficulty)] = hung
-                    print_game(seed, difficulty, hits[(seed, difficulty)], hung)
+                    hung_levels[(seed, difficulty)] = skipped
+                    print_game(seed, difficulty, hits[(seed, difficulty)], skipped)
                 if difficulty == 2:
                     worker.next_seed = seed + args.workers
                     seeds_done += 1
                     last_seed = max(last_seed, seed)
+            elif line.startswith('HUNG,'):
+                row = next(csv.reader([line[5:]]))
+                hung.append((int(row[0]), int(row[1]), int(row[2])))
             elif worker is not None and line.startswith(f'worker {worker.index} finished'):
                 worker.finished = True
             if time.time() - last_progress >= 60:
@@ -252,7 +256,6 @@ def main():
         for worker in workers:
             if worker.process.poll() is None:
                 worker.process.kill()
-        shutil.rmtree(hung_dir, ignore_errors=True)
 
     print(f'\nSearched {seeds_done:,} seeds, games created {creation_time(first_seed)} to {creation_time(last_seed)}.')
     for difficulty in range(3):

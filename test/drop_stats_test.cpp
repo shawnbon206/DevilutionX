@@ -1,21 +1,20 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <optional>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
-#include "config.h"
 #include "diablo.h"
 #include "engine/load_file.hpp"
 #include "engine/random.hpp"
@@ -719,13 +718,7 @@ std::string RollText(std::optional<int> roll)
 	return roll ? std::to_string(*roll) : "";
 }
 
-constexpr string_view ItemCsvHeader = "game_seed,difficulty,dlvl,set_level,source_kind,source_name,source_index,"
-                                      "item_type,base_item,item_level,quality,"
-                                      "prefix,prefix_text,prefix_value,prefix_value2,"
-                                      "suffix,suffix_text,suffix_value,suffix_value2,"
-                                      "unique_name,spell,charges,min_dam,max_dam,ac,max_dur,req_str,req_mag,req_dex,"
-                                      "item_value,name,idx,iseed,create_info,prefix_roll,suffix_roll\n";
-
+// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py.
 std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level, const Drop &drop)
 {
 	const Item &item = drop.item;
@@ -752,79 +745,12 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	    RollText(prefix.roll), RollText(suffix.roll));
 }
 
-constexpr string_view GameCsvHeader = "game_seed,difficulty,quests,set_levels,hung_levels,item_rows,items_end\n";
-
-std::string AvailableQuests()
-{
-	std::string names;
-	for (int q = Q_ROCK; q <= Q_BETRAYER; q++) {
-		if (Quests[q]._qactive == QUEST_NOTAVAIL)
-			continue;
-		if (!names.empty())
-			names += ';';
-		names += QuestsData[q]._qlstr;
-	}
-	return names;
-}
-
-std::string ReachableSetLevels(const std::vector<LevelId> &levels)
-{
-	std::string names;
-	for (LevelId level : levels) {
-		if (level.setLevel == SL_NONE)
-			continue;
-		if (!names.empty())
-			names += ';';
-		names += GetSetLevelQuest(level.setLevel).name;
-	}
-	return names;
-}
-
 std::optional<uint64_t> EnvNumber(const char *name)
 {
 	const char *value = std::getenv(name);
 	if (value == nullptr || *value == '\0')
 		return std::nullopt;
 	return std::strtoull(value, nullptr, 10);
-}
-
-struct ResumePoint {
-	uint64_t lastSeed;
-	uint64_t itemsEnd;
-	uint64_t gamesEnd;
-};
-
-// A seed's rows are appended to the items file first, then its three games rows, each carrying the items
-// file size after it. The last complete Hell row marks where both files can be cut back to after a crash.
-std::optional<ResumePoint> FindResumePoint(const std::string &gamesPath)
-{
-	std::ifstream games(gamesPath, std::ios::binary);
-	if (!games)
-		return std::nullopt;
-	std::optional<ResumePoint> resume;
-	std::string line;
-	uint64_t lineStart = 0;
-	while (std::getline(games, line)) {
-		const uint64_t lineEnd = lineStart + line.size() + 1;
-		const bool complete = !games.eof();
-		std::vector<std::string> fields;
-		std::string field;
-		bool quoted = false;
-		for (char c : line) {
-			if (c == '"')
-				quoted = !quoted;
-			else if (c == ',' && !quoted) {
-				fields.push_back(field);
-				field.clear();
-			} else
-				field += c;
-		}
-		fields.push_back(field);
-		if (complete && fields.size() == 7 && fields[1] == "2" && !fields[6].empty() && std::isdigit(static_cast<unsigned char>(fields[0][0])))
-			resume = ResumePoint { std::stoull(fields[0]), std::stoull(fields[6]), lineEnd };
-		lineStart = lineEnd;
-	}
-	return resume;
 }
 
 class DropStats : public ::testing::Test {
@@ -976,135 +902,77 @@ TEST_F(DropStats, TraceSeed)
 	}
 }
 
-// One worker of the long simulation run, driven by environment variables (see test/drop_stats/drops.ps1):
-// DROPSTATS_OUT_DIR, DROPSTATS_WORKER, DROPSTATS_FIRST_SEED, DROPSTATS_SEED_COUNT, optional DROPSTATS_SEED_STEP
-// (every n-th seed, so workers can interleave), DROPSTATS_STOP_AT (unix time)
-// and DROPSTATS_GIT_REV. Rerunning with the same settings resumes after the last complete seed.
-// With DROPSTATS_STDOUT set the rows go to stdout for a live search instead of to files: item rows start
-// with "I," and game rows with "G,". Nothing is resumed then; the caller restarts from the last seed it saw.
-TEST_F(DropStats, Record)
+// One worker of drops.ps1 search (test/drop_stats/search_drop_stats.py), driven by environment variables:
+// DROPSTATS_FIRST_SEED, DROPSTATS_SEED_STEP (every n-th seed, so workers interleave), and optionally
+// DROPSTATS_STOP_AT (unix time), DROPSTATS_SKIP_LEVELS and DROPSTATS_WORKER. Rows go to stdout: an "I," row per
+// magic or unique item (columns as ItemCsvRow), then "G,<seed>,<difficulty>,<levels left out>" per game.
+TEST_F(DropStats, SearchWorker)
 {
-	const char *outDir = std::getenv("DROPSTATS_OUT_DIR");
-	if (outDir == nullptr)
-		GTEST_SKIP() << "DROPSTATS_OUT_DIR not set";
-	const char *workerEnv = std::getenv("DROPSTATS_WORKER");
-	const std::string worker = workerEnv != nullptr ? workerEnv : "0";
-	const uint64_t firstSeed = EnvNumber("DROPSTATS_FIRST_SEED").value_or(0);
-	const uint64_t seedCount = EnvNumber("DROPSTATS_SEED_COUNT").value_or(1000);
+	const std::optional<uint64_t> firstSeed = EnvNumber("DROPSTATS_FIRST_SEED");
+	if (!firstSeed)
+		GTEST_SKIP() << "DROPSTATS_FIRST_SEED not set";
 	const uint64_t seedStep = std::max<uint64_t>(EnvNumber("DROPSTATS_SEED_STEP").value_or(1), 1);
 	const std::optional<uint64_t> stopAt = EnvNumber("DROPSTATS_STOP_AT");
-	const char *gitRev = std::getenv("DROPSTATS_GIT_REV");
-	const bool toStdout = std::getenv("DROPSTATS_STDOUT") != nullptr;
+	const auto worker = static_cast<unsigned long long>(EnvNumber("DROPSTATS_WORKER").value_or(0));
 
-	const std::string base = StrCat(outDir, "/");
-	const std::string itemsPath = StrCat(base, "items_", worker, ".csv");
-	const std::string gamesPath = StrCat(base, "games_", worker, ".csv");
-
-	uint64_t seed = firstSeed;
-	if (!toStdout) {
-		if (const std::optional<ResumePoint> resume = FindResumePoint(gamesPath)) {
-			seed = resume->lastSeed + seedStep;
-			std::filesystem::resize_file(itemsPath, resume->itemsEnd);
-			std::filesystem::resize_file(gamesPath, resume->gamesEnd);
-		} else {
-			std::ofstream(itemsPath, std::ios::binary | std::ios::trunc) << ItemCsvHeader;
-			std::ofstream(gamesPath, std::ios::binary | std::ios::trunc) << GameCsvHeader;
-		}
-	}
-
-	if (!toStdout) {
-		std::ofstream info(StrCat(base, "run_info_", worker, ".txt"), std::ios::binary | std::ios::trunc);
-		info << "version=" << PROJECT_VERSION << "\n"
-		     << "git_rev=" << (gitRev != nullptr ? gitRev : "") << "\n"
-		     << "game_mode=" << (gbIsHellfire ? "hellfire" : "diablo") << "\n"
-		     << "multiplayer=" << 1 << "\n"
-		     << "full_quests=" << 1 << "\n"
-		     << "randomize_quests=" << RandomizeQuests << "\n"
-		     << "theo_quest=" << 0 << "\n"
-		     << "cow_quest=" << 0 << "\n"
-		     << "worker=" << worker << "\n"
-		     << "first_seed=" << firstSeed << "\n"
-		     << "seed_count=" << seedCount << "\n"
-		     << "seed_step=" << seedStep << "\n";
-	}
-
-	// For some seeds the game's own level generator loops forever on one level (seen in the catacombs).
-	// The layout doesn't depend on difficulty or entrance, so that level is listed in hung_<worker>.csv and
-	// left out of the seed on every difficulty; the launcher restarts the worker after the exit below.
-	const std::string hungPath = StrCat(base, "hung_", worker, ".csv");
-	std::map<uint64_t, std::vector<std::pair<int, int>>> hungLevels;
-	{
-		std::ifstream hung(hungPath);
-		std::string line;
-		while (std::getline(hung, line)) {
-			unsigned long long hungSeed = 0;
+	// For some seeds the game's own level generator loops forever on one level (seen in the catacombs). The
+	// watchdog below reports the level and exits, and the search restarts the worker with that level in
+	// DROPSTATS_SKIP_LEVELS ("seed:dlvl:setlevel;..."). The layout doesn't depend on difficulty or entrance,
+	// so the level is left out on every difficulty.
+	std::vector<std::tuple<uint64_t, int, int>> skipLevels;
+	if (const char *skip = std::getenv("DROPSTATS_SKIP_LEVELS")) {
+		for (const char *entry = skip; *entry != '\0';) {
+			unsigned long long skipSeed = 0;
 			int dlvl = 0;
 			int setLevel = 0;
-			if (std::sscanf(line.c_str(), "%llu,%d,%d", &hungSeed, &dlvl, &setLevel) == 3)
-				hungLevels[hungSeed].emplace_back(dlvl, setLevel);
+			if (std::sscanf(entry, "%llu:%d:%d", &skipSeed, &dlvl, &setLevel) == 3)
+				skipLevels.emplace_back(skipSeed, dlvl, setLevel);
+			const char *next = std::strchr(entry, ';');
+			if (next == nullptr)
+				break;
+			entry = next + 1;
 		}
 	}
-	auto isHung = [&](uint64_t hungSeed, LevelId level) {
-		const auto found = hungLevels.find(hungSeed);
-		if (found == hungLevels.end())
-			return false;
-		const std::pair<int, int> key { level.dlvl, level.setLevel };
-		return std::find(found->second.begin(), found->second.end(), key) != found->second.end();
+	auto isSkipped = [&](uint64_t seed, LevelId level) {
+		const std::tuple<uint64_t, int, int> key { seed, level.dlvl, level.setLevel };
+		return std::find(skipLevels.begin(), skipLevels.end(), key) != skipLevels.end();
 	};
-	const auto hangLimit = std::chrono::seconds(EnvNumber("DROPSTATS_HANG_SECONDS").value_or(60));
-	std::atomic<uint64_t> currentSeed { seed };
+
+	// A normal seed takes about half a second for all three difficulties.
+	const auto hangLimit = std::chrono::seconds(EnvNumber("DROPSTATS_HANG_SECONDS").value_or(10));
+	std::atomic<uint64_t> currentSeed { *firstSeed };
 	std::atomic<int> currentDlvl { 0 };
 	std::atomic<int> currentSetLevel { SL_NONE };
 	std::atomic<int64_t> seedStarted { std::chrono::steady_clock::now().time_since_epoch().count() };
-	std::atomic<bool> recording { true };
+	std::atomic<bool> searching { true };
 	std::thread watchdog([&]() {
-		while (recording) {
+		while (searching) {
 			std::this_thread::sleep_for(std::chrono::seconds(1));
 			const std::chrono::steady_clock::time_point since { std::chrono::steady_clock::duration(seedStarted.load()) };
-			if (!recording || std::chrono::steady_clock::now() - since < hangLimit)
+			if (!searching || std::chrono::steady_clock::now() - since < hangLimit)
 				continue;
 			const LevelId level { static_cast<uint8_t>(currentDlvl.load()), static_cast<_setlevels>(currentSetLevel.load()) };
-			std::ofstream hung(hungPath, std::ios::binary | std::ios::app);
-			hung << currentSeed.load() << "," << static_cast<int>(level.dlvl) << "," << static_cast<int>(level.setLevel) << "," << CsvField(LevelName(level)) << "\n";
-			hung.flush();
-			std::printf("worker %s: seed %llu hung in %s, exiting so the level can be skipped\n", worker.c_str(), static_cast<unsigned long long>(currentSeed.load()), LevelName(level).c_str());
+			std::printf("HUNG,%llu,%d,%d,%s\n", static_cast<unsigned long long>(currentSeed.load()), static_cast<int>(level.dlvl), static_cast<int>(level.setLevel), CsvField(LevelName(level)).c_str());
 			std::fflush(stdout);
 			std::_Exit(3);
 		}
 	});
 
-	uint64_t itemsSize = 0;
-	std::ofstream items;
-	std::ofstream games;
-	if (!toStdout) {
-		itemsSize = std::filesystem::file_size(itemsPath);
-		items.open(itemsPath, std::ios::binary | std::ios::app);
-		games.open(gamesPath, std::ios::binary | std::ios::app);
-	}
-	const string_view itemTag = toStdout ? "I," : "";
-	const string_view gameTag = toStdout ? "G," : "";
-
-	const auto started = std::chrono::steady_clock::now();
-	auto lastReport = started;
-	uint64_t seedsDone = 0;
-	const uint64_t endSeed = std::min<uint64_t>(firstSeed + seedCount * seedStep, uint64_t { 1 } << 32);
-	for (; seed < endSeed; seed += seedStep) {
+	uint64_t seed = *firstSeed;
+	for (; seed < (uint64_t { 1 } << 32); seed += seedStep) {
 		if (stopAt && static_cast<uint64_t>(std::time(nullptr)) >= *stopAt)
 			break;
 		currentSeed = seed;
 		seedStarted = std::chrono::steady_clock::now().time_since_epoch().count();
 		const auto gameSeed = static_cast<uint32_t>(seed);
-		std::string itemRows;
-		std::string gameRows;
+		std::string rows;
 		for (_difficulty difficulty : { DIFF_NORMAL, DIFF_NIGHTMARE, DIFF_HELL }) {
 			StartMultiplayerGame(gameSeed, difficulty);
 			const std::vector<LevelId> levels = ReachableLevels();
-			const std::string quests = AvailableQuests();
-			size_t rows = 0;
-			std::string hungNames;
+			std::string skipped;
 			for (LevelId level : levels) {
-				if (isHung(seed, level)) {
-					hungNames += (hungNames.empty() ? "" : ";") + LevelName(level);
+				if (isSkipped(seed, level)) {
+					skipped += (skipped.empty() ? "" : ";") + LevelName(level);
 					continue;
 				}
 				currentDlvl = level.dlvl;
@@ -1114,39 +982,18 @@ TEST_F(DropStats, Record)
 				for (const Drop &drop : DryRunLevelDrops()) {
 					if (drop.item._iMagical == ITEM_QUALITY_NORMAL)
 						continue;
-					itemRows += itemTag;
-					itemRows += ItemCsvRow(gameSeed, difficulty, level, drop);
-					rows++;
+					rows += "I,";
+					rows += ItemCsvRow(gameSeed, difficulty, level, drop);
 				}
 			}
-			gameRows += gameTag;
-			gameRows += fmt::format("{},{},{},{},{},{},{}\n", gameSeed, static_cast<int>(difficulty), CsvField(quests), CsvField(ReachableSetLevels(levels)), CsvField(hungNames), rows, itemsSize + itemRows.size());
+			rows += fmt::format("G,{},{},{}\n", gameSeed, static_cast<int>(difficulty), CsvField(skipped));
 		}
-		if (toStdout) {
-			std::fwrite(itemRows.data(), 1, itemRows.size(), stdout);
-			std::fwrite(gameRows.data(), 1, gameRows.size(), stdout);
-			std::fflush(stdout);
-		} else {
-			items << itemRows;
-			items.flush();
-			itemsSize += itemRows.size();
-			games << gameRows;
-			games.flush();
-			ASSERT_TRUE(items && games) << "write failed in " << outDir;
-		}
-		seedsDone++;
-
-		const auto now = std::chrono::steady_clock::now();
-		if (now - lastReport >= std::chrono::seconds(60)) {
-			const double seconds = std::chrono::duration<double>(now - started).count();
-			std::printf("worker %s: seed %llu, %llu seeds this session, %.2f seeds/s\n", worker.c_str(), static_cast<unsigned long long>(seed), static_cast<unsigned long long>(seedsDone), seedsDone / seconds);
-			std::fflush(stdout);
-			lastReport = now;
-		}
+		std::fwrite(rows.data(), 1, rows.size(), stdout);
+		std::fflush(stdout);
 	}
-	recording = false;
+	searching = false;
 	watchdog.join();
-	std::printf("worker %s finished at seed %llu after %llu seeds\n", worker.c_str(), static_cast<unsigned long long>(seed), static_cast<unsigned long long>(seedsDone));
+	std::printf("worker %llu finished at seed %llu\n", worker, static_cast<unsigned long long>(seed));
 }
 
 } // namespace
