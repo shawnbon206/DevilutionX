@@ -584,6 +584,8 @@ struct GameplayOptions : OptionCategoryBase {
 	OptionEntryBoolean autoEquipJewelry;
 	/** @brief Only enable 2/3 quests in each game session */
 	OptionEntryBoolean randomizeQuests;
+	/** @brief Ask for the game seed when creating a multiplayer game. */
+	OptionEntryBoolean chooseGameSeed;
 	/** @brief Indicates whether or not monster type (Animal, Demon, Undead) is shown along with other monster information. */
 	OptionEntryBoolean showMonsterType;
 	/** @brief Displays item labels for items on the ground.  */

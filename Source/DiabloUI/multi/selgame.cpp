@@ -1,6 +1,8 @@
 #include "DiabloUI/multi/selgame.h"
 
 #include <cstdint>
+#include <limits>
+#include <optional>
 
 #include <fmt/format.h>
 
@@ -536,16 +538,106 @@ void selgame_Speed_Esc()
 	selgame_GameSelection_Select(0);
 }
 
-void selgame_Speed_Select(int value)
-{
-	nTickRate = vecSelGameDlgItems[value]->m_value;
+namespace {
 
+char selgame_Seed[11];
+
+void CreateGameAfterSpeed()
+{
 	if (provider == SELCONN_LOOPBACK || selgame_selectedGame == 1) {
 		selgame_Password_Select(0);
 		return;
 	}
 
 	selgame_Password_Init(0);
+}
+
+std::optional<uint32_t> ParseSeed(string_view text)
+{
+	if (text.empty() || text.size() > 10)
+		return std::nullopt;
+	uint64_t seed = 0;
+	for (char c : text) {
+		if (c < '0' || c > '9')
+			return std::nullopt;
+		seed = seed * 10 + (c - '0');
+	}
+	if (seed > std::numeric_limits<uint32_t>::max())
+		return std::nullopt;
+	return static_cast<uint32_t>(seed);
+}
+
+void selgame_Seed_Select(int value);
+void selgame_Seed_Esc();
+
+void selgame_Seed_Init()
+{
+	// Suggest the seed the game would get anyway: the time the multiplayer menus were opened.
+	CopyUtf8(selgame_Seed, StrCat(m_game_data->dwSeed), sizeof(selgame_Seed));
+	CopyUtf8(selgame_Description, _("Game Seed\nThe dungeon levels and everything in them come from this number. Keep the suggested seed for a normal game."), sizeof(selgame_Description));
+
+	selgame_FreeVectors();
+
+	UiAddBackground(&vecSelGameDialog);
+	UiAddLogo(&vecSelGameDialog);
+
+	const Point uiPosition = GetUIRectangle().position;
+
+	SDL_Rect rect1 = { (Sint16)(uiPosition.x + 24), (Sint16)(uiPosition.y + 161), 590, 35 };
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_(ConnectionNames[provider]).data(), rect1, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
+
+	SDL_Rect rect2 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 211), 205, 192 };
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Description:").data(), rect2, UiFlags::FontSize24 | UiFlags::ColorUiSilver));
+
+	SDL_Rect rect3 = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 256), DESCRIPTION_WIDTH, 192 };
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(selgame_Description, rect3, UiFlags::FontSize12 | UiFlags::ColorUiSilverDark, 1, 16));
+
+	SDL_Rect rect4 = { (Sint16)(uiPosition.x + 305), (Sint16)(uiPosition.y + 211), 285, 33 };
+	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Enter Game Seed").data(), rect4, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
+
+	SDL_Rect rect5 = { (Sint16)(uiPosition.x + 305), (Sint16)(uiPosition.y + 314), 285, 33 };
+	vecSelGameDialog.push_back(std::make_unique<UiEdit>(_("Enter Game Seed"), selgame_Seed, sizeof(selgame_Seed) - 1, false, rect5, UiFlags::FontSize24 | UiFlags::ColorUiGold));
+
+	SDL_Rect rect6 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 427), 140, 35 };
+	vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("OK"), &UiFocusNavigationSelect, rect6, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
+
+	SDL_Rect rect7 = { (Sint16)(uiPosition.x + 449), (Sint16)(uiPosition.y + 427), 140, 35 };
+	vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("CANCEL"), &UiFocusNavigationEsc, rect7, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
+
+	UiInitList(nullptr, selgame_Seed_Select, selgame_Seed_Esc, vecSelGameDialog);
+}
+
+void selgame_Seed_Select(int /*value*/)
+{
+	const std::optional<uint32_t> seed = ParseSeed(selgame_Seed);
+	if (!seed) {
+		selgame_Free();
+		UiSelOkDialog(_("Multi Player Game").data(), _("The game seed must be a whole number from 0 to 4294967295.").data(), false);
+		selgame_Init();
+		selgame_Seed_Init();
+		return;
+	}
+	m_game_data->dwSeed = *seed;
+	CreateGameAfterSpeed();
+}
+
+void selgame_Seed_Esc()
+{
+	selgame_GameSpeedSelection();
+}
+
+} // namespace
+
+void selgame_Speed_Select(int value)
+{
+	nTickRate = vecSelGameDlgItems[value]->m_value;
+
+	if (*sgOptions.Gameplay.chooseGameSeed) {
+		selgame_Seed_Init();
+		return;
+	}
+
+	CreateGameAfterSpeed();
 }
 
 void selgame_Password_Init(int /*value*/)
