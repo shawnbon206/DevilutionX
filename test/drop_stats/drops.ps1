@@ -1,37 +1,66 @@
 <#
 .SYNOPSIS
-Finds DevilutionX 1.5.5 multiplayer game seeds that drop the items you want.
-
-.DESCRIPTION
-A game's seed is the second it was created. Quick search from right now, printing matches as they come:
-
-  drops.ps1 search 5 --type ring --prefix Gold --suffix Life
-                                       Simulate seeds from the current second on for 5 minutes (about
-                                       10,000 seeds). Same wishlist options as find.
-
-For statistics, or to pick from whole days (86,400 seeds each), simulate days, load them, then find:
-
-  drops.ps1 simulate 2026-09-30 14     Simulate 14 days starting Sep 30, in the background (about 40 min
-                                       per day, days finish in order). Run it again to continue after stop.
-  drops.ps1 status                     What is running and which days are done.
-  drops.ps1 stop                       Stop simulating.
-  drops.ps1 load                       Add finished work to the database. Safe while simulating.
-  drops.ps1 find 2026-10-03 --type ring amulet --prefix "Dragon's" Gold --suffix "the Zodiac" Life
-                                       Best seeds for playing on Oct 3, from games created up to 5 days
-                                       before or 1 day after. More options: drops.ps1 find --help
-
-Data goes to ~\drop-stats (one folder per day plus drops.db); set DROPSTATS_ROOT to put it elsewhere.
-The simulation uses the drop_stats_test.exe from the current build, copied when simulate starts.
+Finds DevilutionX 1.5.5 multiplayer game seeds that drop the items you want. Run with --help for usage.
 #>
 param(
 	[Parameter(Position = 0)]
-	[ValidateSet('search', 'simulate', 'status', 'stop', 'load', 'find', 'supervise')]
 	[string]$Command,
 	[Parameter(Position = 1, ValueFromRemainingArguments)]
 	[string[]]$Arguments
 )
 
 $ErrorActionPreference = 'Stop'
+
+$Usage = @'
+Finds DevilutionX 1.5.5 multiplayer game seeds that drop the items you want.
+A game's seed is the second it was created (Diablo mode, full quests, randomized quests).
+
+Search from right now, printing matching games as they are found:
+  drops.ps1 search <minutes> <wishlist>
+  drops.ps1 search 5 --type ring amulet --prefix Obsidian Gold "Dragon's" --suffix life "the zodiac" --min-roll 80
+  About 39 seeds a second; Ctrl+C stops early and still prints the best seeds.
+
+Simulate whole days, then search them instantly (and get odds, e.g. does a combination ever drop):
+  drops.ps1 simulate <yyyy-MM-dd> [days]   Runs in the background, about 40 minutes per day.
+  drops.ps1 status                         What is running and how far each day is.
+  drops.ps1 stop                           Stops; the same simulate command continues later.
+  drops.ps1 load                           Adds finished work to the database (fine while simulating).
+  drops.ps1 find [<play date>] <wishlist>  With a date: games created 5 days before to 1 day after it.
+                                           Without: everything simulated, e.g. for odds.
+
+Wishlist options (search and find):
+  --type ring amulet ...     sword axe mace bow staff helm shield light_armor medium_armor heavy_armor
+  --base Maul "Great Axe"    base items
+  --prefix "King's" Gold   prefixes; the item's prefix must be one of them
+  --suffix haste life ...    suffixes; "of " is optional. With both lists the item needs both,
+  --either                   ...or with --either, one of the two is enough
+  --unique "Harlequin Crest" unique items
+  --min-roll 80              each wanted affix rolled at least 80% of the way up its own range
+  Name:N                     a minimum for one affix's first shown number, e.g. --prefix Obsidian:39
+  --difficulty 0|1|2         Normal, Nightmare, Hell (default: all three)
+  --seeds 50                 how many of the best seeds to list (default 20)
+Names are not case-sensitive; quote names with spaces or apostrophes. More: drops.ps1 search --help
+
+Data is kept in ~\drop-stats (set DROPSTATS_ROOT to move it). Uses the current build's drop_stats_test.exe.
+'@
+
+if (-not $Command -or $Command -in 'help', '--help', '-help', '/?') {
+	Write-Output $Usage
+	return
+}
+if ($Command -notin 'search', 'simulate', 'status', 'stop', 'load', 'find', 'supervise') {
+	Write-Output "Unknown command '$Command'.`n"
+	Write-Output $Usage
+	exit 1
+}
+if ($Arguments -contains '--help') {
+	if ($Command -in 'search', 'find') {
+		python (Join-Path $PSScriptRoot "$(if ($Command -eq 'search') { 'search' } else { 'query' })_drop_stats.py") --help
+	} else {
+		Write-Output $Usage
+	}
+	return
+}
 $Workers = 20
 $Root = if ($env:DROPSTATS_ROOT) { $env:DROPSTATS_ROOT } else { Join-Path $HOME 'drop-stats' }
 $Repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
