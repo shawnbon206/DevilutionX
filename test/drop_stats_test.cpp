@@ -904,6 +904,8 @@ TEST_F(DropStats, TraceSeed)
 		GTEST_SKIP() << "DROPSTATS_TRACE_SEED not set";
 	const std::optional<uint64_t> onlyDlvl = EnvNumber("DROPSTATS_TRACE_DLVL");
 	const auto gameSeed = static_cast<uint32_t>(*traceSeed);
+	StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+	std::printf("storybook %u\n", glSeedTbl[16]);
 	for (_difficulty difficulty : { DIFF_NORMAL, DIFF_NIGHTMARE, DIFF_HELL }) {
 		StartMultiplayerGame(gameSeed, difficulty);
 		for (LevelId level : ReachableLevels()) {
