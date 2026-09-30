@@ -183,7 +183,7 @@ def load_run_info(db, out_dir):
         with open(path, encoding='utf-8') as f:
             for line in f:
                 key, _, value = line.strip().partition('=')
-                if key in ('worker', 'first_seed', 'seed_count'):
+                if key in ('worker', 'first_seed', 'seed_count', 'seed_step'):
                     continue
                 if key in info and info[key] != value:
                     sys.exit(f'{path}: {key}={value} differs from other workers ({info[key]}); these runs must not share a database')

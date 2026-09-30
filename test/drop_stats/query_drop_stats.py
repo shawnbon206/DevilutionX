@@ -24,7 +24,7 @@ def string_ids(db, kind, names):
             name = name[3:]
         rows = db.execute('SELECT id FROM strings WHERE text = ? COLLATE NOCASE', (name,)).fetchall()
         if not rows:
-            sys.exit(f'no {kind} called "{name}" in the database (check the spelling)')
+            sys.exit(f'no {kind} called "{name}" in the database: check the spelling, or it never dropped in these games')
         ids.extend(row[0] for row in rows)
     return ids
 
@@ -68,6 +68,7 @@ def main():
     parser.add_argument('--difficulty', type=int, choices=[0, 1, 2], help='0 Normal, 1 Nightmare, 2 Hell (default: all)')
     parser.add_argument('--min-prefix-value', type=int, help='minimum first number of the prefix, e.g. 150 for +150%% damage')
     parser.add_argument('--min-suffix-value', type=int, help='minimum first number of the suffix')
+    parser.add_argument('--day', help='only games created on this local date, YYYY-MM-DD')
     parser.add_argument('--seeds', type=int, default=20, help='how many matching game seeds to list')
     parser.add_argument('--sql', action='store_true', help='print the SQL condition used')
     args = parser.parse_args()
@@ -98,6 +99,15 @@ def main():
         conditions.append(f'suffix_value >= {args.min_suffix_value}')
     if not conditions:
         sys.exit('give at least one of --type, --base, --prefix, --suffix, --unique')
+    games_where = 'TRUE'
+    if args.day:
+        day = datetime.datetime.strptime(args.day, '%Y-%m-%d')
+        start = int(day.astimezone().timestamp())
+        end = int((day + datetime.timedelta(days=1)).astimezone().timestamp())
+        games_where = f'game_seed >= {start} AND game_seed < {end}'
+        conditions.append(games_where)
+        if db.execute(f'SELECT COUNT(*) FROM games WHERE {games_where}').fetchone()[0] == 0:
+            sys.exit(f'no games from {args.day} in {args.db}; simulate it with run_drop_stats.ps1 -Day {args.day}')
     where = ' AND '.join(conditions)
     if args.sql:
         print(f'WHERE {where}\n')
@@ -108,7 +118,7 @@ def main():
     print(f"Settings: {info.get('game_mode')} {info.get('version')}, multiplayer, full quests {info.get('full_quests')}, randomized quests {info.get('randomize_quests')}")
 
     print(f'\n{"difficulty":<12}{"games":>12}{"items":>12}{"per game":>11}  games with at least one')
-    for difficulty, games in db.execute('SELECT difficulty, COUNT(*) FROM games GROUP BY difficulty ORDER BY difficulty').fetchall():
+    for difficulty, games in db.execute(f'SELECT difficulty, COUNT(*) FROM games WHERE {games_where} GROUP BY difficulty ORDER BY difficulty').fetchall():
         if args.difficulty is not None and difficulty != args.difficulty:
             continue
         items, with_one = db.execute('SELECT COUNT(*), COUNT(DISTINCT game_seed) FROM hits WHERE difficulty = ?', (difficulty,)).fetchone()

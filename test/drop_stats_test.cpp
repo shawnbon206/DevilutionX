@@ -753,7 +753,7 @@ std::optional<uint64_t> EnvNumber(const char *name)
 }
 
 struct ResumePoint {
-	uint64_t nextSeed;
+	uint64_t lastSeed;
 	uint64_t itemsEnd;
 	uint64_t gamesEnd;
 };
@@ -785,7 +785,7 @@ std::optional<ResumePoint> FindResumePoint(const std::string &gamesPath)
 		}
 		fields.push_back(field);
 		if (complete && fields.size() == 7 && fields[1] == "2" && !fields[6].empty() && std::isdigit(static_cast<unsigned char>(fields[0][0])))
-			resume = ResumePoint { std::stoull(fields[0]) + 1, std::stoull(fields[6]), lineEnd };
+			resume = ResumePoint { std::stoull(fields[0]), std::stoull(fields[6]), lineEnd };
 		lineStart = lineEnd;
 	}
 	return resume;
@@ -923,7 +923,8 @@ TEST_F(DropStats, TraceSeed)
 }
 
 // One worker of the long simulation run, driven by environment variables (see test/drop_stats/run_drop_stats.ps1):
-// DROPSTATS_OUT_DIR, DROPSTATS_WORKER, DROPSTATS_FIRST_SEED, DROPSTATS_SEED_COUNT, optional DROPSTATS_STOP_AT (unix time)
+// DROPSTATS_OUT_DIR, DROPSTATS_WORKER, DROPSTATS_FIRST_SEED, DROPSTATS_SEED_COUNT, optional DROPSTATS_SEED_STEP
+// (every n-th seed, so workers can interleave), DROPSTATS_STOP_AT (unix time)
 // and DROPSTATS_GIT_REV. Rerunning with the same settings resumes after the last complete seed.
 TEST_F(DropStats, Record)
 {
@@ -934,6 +935,7 @@ TEST_F(DropStats, Record)
 	const std::string worker = workerEnv != nullptr ? workerEnv : "0";
 	const uint64_t firstSeed = EnvNumber("DROPSTATS_FIRST_SEED").value_or(0);
 	const uint64_t seedCount = EnvNumber("DROPSTATS_SEED_COUNT").value_or(1000);
+	const uint64_t seedStep = std::max<uint64_t>(EnvNumber("DROPSTATS_SEED_STEP").value_or(1), 1);
 	const std::optional<uint64_t> stopAt = EnvNumber("DROPSTATS_STOP_AT");
 	const char *gitRev = std::getenv("DROPSTATS_GIT_REV");
 
@@ -943,7 +945,7 @@ TEST_F(DropStats, Record)
 
 	uint64_t seed = firstSeed;
 	if (const std::optional<ResumePoint> resume = FindResumePoint(gamesPath)) {
-		seed = resume->nextSeed;
+		seed = resume->lastSeed + seedStep;
 		std::filesystem::resize_file(itemsPath, resume->itemsEnd);
 		std::filesystem::resize_file(gamesPath, resume->gamesEnd);
 	} else {
@@ -963,7 +965,8 @@ TEST_F(DropStats, Record)
 		     << "cow_quest=" << 0 << "\n"
 		     << "worker=" << worker << "\n"
 		     << "first_seed=" << firstSeed << "\n"
-		     << "seed_count=" << seedCount << "\n";
+		     << "seed_count=" << seedCount << "\n"
+		     << "seed_step=" << seedStep << "\n";
 	}
 
 	// For some seeds the game's own level generator loops forever on one level (seen in the catacombs).
@@ -1018,8 +1021,8 @@ TEST_F(DropStats, Record)
 	const auto started = std::chrono::steady_clock::now();
 	auto lastReport = started;
 	uint64_t seedsDone = 0;
-	const uint64_t endSeed = std::min<uint64_t>(firstSeed + seedCount, uint64_t { 1 } << 32);
-	for (; seed < endSeed; seed++) {
+	const uint64_t endSeed = std::min<uint64_t>(firstSeed + seedCount * seedStep, uint64_t { 1 } << 32);
+	for (; seed < endSeed; seed += seedStep) {
 		if (stopAt && static_cast<uint64_t>(std::time(nullptr)) >= *stopAt)
 			break;
 		currentSeed = seed;

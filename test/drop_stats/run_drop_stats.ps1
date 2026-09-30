@@ -11,8 +11,9 @@ and continues without that level. Keep this window open until it says the run is
 Running the script again with the same OutDir resumes every worker where it stopped, using the seed
 blocks saved in run.json. Load the results with load_drop_stats.py, which can run at any time.
 
--Day simulates every second of one local calendar day (the seeds a game created that day can have)
-into its own folder, drop-stats-day-<date>, unless -OutDir is given.
+-Day simulates every second of a local calendar day (the seeds a game created that day can have),
+or of -Days days starting there, into its own folder (drop-stats-<date>-<days>d) unless -OutDir is given.
+One day takes about 40 minutes on 20 workers.
 
 .EXAMPLE
 .\test\drop_stats\run_drop_stats.ps1 -Hours 10
@@ -21,11 +22,15 @@ into its own folder, drop-stats-day-<date>, unless -OutDir is given.
 .\test\drop_stats\run_drop_stats.ps1 -Day 2026-10-03
 
 .EXAMPLE
+.\test\drop_stats\run_drop_stats.ps1 -Day 2026-09-30 -Days 14
+
+.EXAMPLE
 .\test\drop_stats\run_drop_stats.ps1 -Status
 #>
 param(
 	[string]$OutDir = (Join-Path $HOME 'drop-stats-data'),
 	[string]$Day,
+	[int]$Days = 1,
 	[int]$Workers = 20,
 	[double]$Hours = 10,
 	[long]$FirstSeed = 0,
@@ -41,11 +46,16 @@ if ($Day) {
 	$midnight = [DateTime]::ParseExact($Day, 'yyyy-MM-dd', $null)
 	$dayStart = ([DateTimeOffset]$midnight).ToUnixTimeSeconds()
 	# Daylight saving changes make some days 23 or 25 hours long.
-	$dayEnd = ([DateTimeOffset]$midnight.AddDays(1)).ToUnixTimeSeconds()
+	$dayEnd = ([DateTimeOffset]$midnight.AddDays($Days)).ToUnixTimeSeconds()
 	$FirstSeed = $dayStart
 	$SeedsPerWorker = [Math]::Ceiling(($dayEnd - $dayStart) / $Workers)
+	# Workers take every n-th second, so the days fill in from the first one onwards.
+	$interleave = $true
 	if (-not $PSBoundParameters.ContainsKey('OutDir')) {
-		$OutDir = Join-Path $HOME "drop-stats-day-$Day"
+		$OutDir = Join-Path $HOME "drop-stats-$Day-${Days}d"
+	}
+	if (-not $PSBoundParameters.ContainsKey('Hours')) {
+		$Hours = 24 * $Days
 	}
 }
 $runFile = Join-Path $OutDir 'run.json'
@@ -94,7 +104,7 @@ if (Test-Path $runFile) {
 	$repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 	$rev = (git -C $repo rev-parse HEAD).Trim()
 	if (git -C $repo status --porcelain --untracked-files=no) { $rev += '-dirty' }
-	$run = [pscustomobject]@{ workers = $Workers; firstSeed = $FirstSeed; seedsPerWorker = $SeedsPerWorker; gitRev = $rev }
+	$run = [pscustomobject]@{ workers = $Workers; firstSeed = $FirstSeed; seedsPerWorker = $SeedsPerWorker; interleave = [bool]$interleave; gitRev = $rev }
 	$run | ConvertTo-Json | Set-Content $runFile
 }
 
@@ -112,7 +122,13 @@ $stopAt = [DateTimeOffset]::UtcNow.AddHours($Hours).ToUnixTimeSeconds()
 function Start-Worker([int]$worker) {
 	$env:DROPSTATS_OUT_DIR = $OutDir
 	$env:DROPSTATS_WORKER = "$worker"
-	$env:DROPSTATS_FIRST_SEED = "$([long]$run.firstSeed + $worker * [long]$run.seedsPerWorker)"
+	if ($run.interleave) {
+		$env:DROPSTATS_FIRST_SEED = "$([long]$run.firstSeed + $worker)"
+		$env:DROPSTATS_SEED_STEP = "$($run.workers)"
+	} else {
+		$env:DROPSTATS_FIRST_SEED = "$([long]$run.firstSeed + $worker * [long]$run.seedsPerWorker)"
+		$env:DROPSTATS_SEED_STEP = '1'
+	}
 	$env:DROPSTATS_SEED_COUNT = "$($run.seedsPerWorker)"
 	$env:DROPSTATS_STOP_AT = "$stopAt"
 	$env:DROPSTATS_GIT_REV = $run.gitRev
