@@ -26,7 +26,7 @@ INT_COLUMNS = [
     'game_seed', 'difficulty', 'dlvl', 'source_index', 'item_level',
     'prefix_value', 'prefix_value2', 'suffix_value', 'suffix_value2',
     'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
-    'item_value', 'idx', 'iseed', 'create_info',
+    'item_value', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
 ]
 ITEM_COLUMNS = [
     'game_seed', 'difficulty', 'dlvl', 'set_level', 'source_kind', 'source_name', 'source_index',
@@ -34,7 +34,7 @@ ITEM_COLUMNS = [
     'prefix', 'prefix_text', 'prefix_value', 'prefix_value2',
     'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
     'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
-    'item_value', 'name', 'idx', 'iseed', 'create_info',
+    'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
 ]
 
 SCHEMA = """
@@ -53,14 +53,15 @@ CREATE TABLE IF NOT EXISTS items (
     suffix INTEGER, suffix_text INTEGER, suffix_value INTEGER, suffix_value2 INTEGER,
     unique_name INTEGER, spell INTEGER, charges INTEGER, min_dam INTEGER, max_dam INTEGER, ac INTEGER, max_dur INTEGER,
     req_str INTEGER, req_mag INTEGER, req_dex INTEGER, item_value INTEGER, name INTEGER,
-    idx INTEGER, iseed INTEGER, create_info INTEGER);
+    idx INTEGER, iseed INTEGER, create_info INTEGER, prefix_roll INTEGER, suffix_roll INTEGER);
 CREATE VIEW IF NOT EXISTS items_v AS SELECT
     i.rowid AS item_id, i.game_seed, i.difficulty, i.dlvl, sl.text AS set_level, sk.text AS source_kind, sn.text AS source_name,
     i.source_index, it.text AS item_type, bi.text AS base_item, i.item_level, q.text AS quality,
     p.text AS prefix, pt.text AS prefix_text, i.prefix_value, i.prefix_value2,
     s.text AS suffix, st.text AS suffix_text, i.suffix_value, i.suffix_value2,
     u.text AS unique_name, sp.text AS spell, i.charges, i.min_dam, i.max_dam, i.ac, i.max_dur,
-    i.req_str, i.req_mag, i.req_dex, i.item_value, n.text AS name, i.idx, i.iseed, i.create_info
+    i.req_str, i.req_mag, i.req_dex, i.item_value, n.text AS name, i.idx, i.iseed, i.create_info,
+    i.prefix_roll, i.suffix_roll
 FROM items i
 LEFT JOIN strings sl ON sl.id = i.set_level
 LEFT JOIN strings sk ON sk.id = i.source_kind

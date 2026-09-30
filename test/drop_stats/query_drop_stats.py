@@ -7,6 +7,8 @@ For the day you play, allowing games created up to 5 days earlier or 1 day later
     ... --day 2026-10-03 --before 5 --after 1
 
 Only one side given means only that side has to match; --either accepts an item that matches either list.
+A prefix or suffix can carry a minimum for the first number it shows, e.g. --prefix Obsidian:38 Gold:28,
+or --min-roll 80 keeps only affixes that rolled in the top fifth of their own range.
 Names are case-insensitive and a leading "of " on suffixes is ignored.
 """
 
@@ -30,6 +32,25 @@ def string_ids(db, kind, names):
             sys.exit(f'no {kind} called "{name}" in the database: check the spelling, or it never dropped in these games')
         ids.extend(row[0] for row in rows)
     return ids
+
+
+def split_minimum(spec):
+    """"Obsidian:38" -> ("Obsidian", 38): the first number the affix shows in game must be at least 38."""
+    name, sep, minimum = spec.rpartition(':')
+    if sep and minimum.isdigit():
+        return name, int(minimum)
+    return spec, None
+
+
+def affix_condition(db, kind, specs, min_roll):
+    """SQL for "the item's prefix (or suffix) is one of these, each with its own optional minimum"."""
+    parts = []
+    for spec in specs:
+        name, minimum = split_minimum(spec)
+        ids = in_list(kind, string_ids(db, kind, [name]))
+        parts.append(ids if minimum is None else f'({ids} AND {kind}_value >= {minimum})')
+    condition = '(' + ' OR '.join(parts) + ')'
+    return condition if min_roll is None else f'({condition} AND {kind}_roll >= {min_roll})'
 
 
 def storybook_number(game_seed):
@@ -64,16 +85,15 @@ def main():
     parser.add_argument('db', help='drops.db made by load_drop_stats.py')
     parser.add_argument('--type', nargs='+', default=[], help='item types: ring amulet sword axe mace bow staff helm shield light_armor medium_armor heavy_armor')
     parser.add_argument('--base', nargs='+', default=[], help='base items, e.g. Maul "Great Axe"')
-    parser.add_argument('--prefix', nargs='+', default=[], help='wanted prefixes')
-    parser.add_argument('--suffix', nargs='+', default=[], help='wanted suffixes')
+    parser.add_argument('--prefix', nargs='+', default=[], help='wanted prefixes; add :N for a minimum, e.g. Obsidian:38 means resist all at least 38')
+    parser.add_argument('--suffix', nargs='+', default=[], help='wanted suffixes; add :N for a minimum, e.g. life:28')
     parser.add_argument('--unique', nargs='+', default=[], help='wanted unique items')
     parser.add_argument('--either', action='store_true', help='prefix OR suffix on the lists instead of both')
     parser.add_argument('--difficulty', type=int, choices=[0, 1, 2], help='0 Normal, 1 Nightmare, 2 Hell (default: all)')
-    parser.add_argument('--min-prefix-value', type=int, help='minimum first number of the prefix, e.g. 150 for +150%% damage')
-    parser.add_argument('--min-suffix-value', type=int, help='minimum first number of the suffix')
     parser.add_argument('--day', help='only games created on this local date, YYYY-MM-DD')
     parser.add_argument('--before', type=int, default=0, help='with --day, also games created up to this many days earlier')
     parser.add_argument('--after', type=int, default=0, help='with --day, also games created up to this many days later')
+    parser.add_argument('--min-roll', type=int, help='each wanted prefix and suffix must have rolled at least this far up its range, 0-100; 80 means the top fifth')
     parser.add_argument('--seeds', type=int, default=20, help='how many matching game seeds to list')
     parser.add_argument('--sql', action='store_true', help='print the SQL condition used')
     args = parser.parse_args()
@@ -89,19 +109,15 @@ def main():
         conditions.append(in_list('base_item', string_ids(db, 'base item', args.base)))
     affix = []
     if args.prefix:
-        affix.append(in_list('prefix', string_ids(db, 'prefix', args.prefix)))
+        affix.append(affix_condition(db, 'prefix', args.prefix, args.min_roll))
     if args.suffix:
-        affix.append(in_list('suffix', string_ids(db, 'suffix', args.suffix)))
+        affix.append(affix_condition(db, 'suffix', args.suffix, args.min_roll))
     if affix:
         conditions.append('(' + (' OR ' if args.either else ' AND ').join(affix) + ')')
     if args.unique:
         conditions.append(in_list('unique_name', string_ids(db, 'unique', args.unique)))
     if args.difficulty is not None:
         conditions.append(f'difficulty = {args.difficulty}')
-    if args.min_prefix_value is not None:
-        conditions.append(f'prefix_value >= {args.min_prefix_value}')
-    if args.min_suffix_value is not None:
-        conditions.append(f'suffix_value >= {args.min_suffix_value}')
     if not conditions:
         sys.exit('give at least one of --type, --base, --prefix, --suffix, --unique')
     games_where = 'TRUE'

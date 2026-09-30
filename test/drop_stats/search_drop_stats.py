@@ -3,7 +3,8 @@
 Usually run through drops.ps1 search, which prepares the simulator. Directly:
     python test/drop_stats/search_drop_stats.py --bin ~/drop-stats/search-bin --minutes 5 --type ring --prefix Gold --suffix Life
 
-The wishlist options are the same as for query_drop_stats.py. Ctrl+C stops early and still prints the summary.
+The wishlist options are the same as for query_drop_stats.py; a prefix or suffix can carry a minimum for the
+first number it shows, e.g. --prefix Obsidian:38 Gold:28. Ctrl+C stops early and still prints the summary.
 """
 
 import argparse
@@ -30,19 +31,26 @@ def parse_args():
     parser.add_argument('--start', type=int, help='first seed (default: the current second)')
     parser.add_argument('--type', nargs='+', default=[], help='item types: ring amulet sword axe mace bow staff helm shield light_armor medium_armor heavy_armor')
     parser.add_argument('--base', nargs='+', default=[], help='base items, e.g. Maul "Great Axe"')
-    parser.add_argument('--prefix', nargs='+', default=[], help='wanted prefixes')
-    parser.add_argument('--suffix', nargs='+', default=[], help='wanted suffixes')
+    parser.add_argument('--prefix', nargs='+', default=[], help='wanted prefixes; add :N for a minimum, e.g. Obsidian:38 means resist all at least 38')
+    parser.add_argument('--suffix', nargs='+', default=[], help='wanted suffixes; add :N for a minimum, e.g. life:28')
     parser.add_argument('--unique', nargs='+', default=[], help='wanted unique items')
     parser.add_argument('--either', action='store_true', help='prefix OR suffix on the lists instead of both')
     parser.add_argument('--difficulty', type=int, choices=[0, 1, 2], help='0 Normal, 1 Nightmare, 2 Hell (default: all)')
-    parser.add_argument('--min-prefix-value', type=int, help='minimum first number of the prefix, e.g. 150 for +150%% damage')
-    parser.add_argument('--min-suffix-value', type=int, help='minimum first number of the suffix')
+    parser.add_argument('--min-roll', type=int, help='each wanted prefix and suffix must have rolled at least this far up its range, 0-100; 80 means the top fifth')
     parser.add_argument('--seeds', type=int, default=20, help='how many of the best seeds to list at the end')
     parser.add_argument('--keep', action='store_true', help='keep the workers\' files (all simulated items) instead of deleting them')
     args = parser.parse_args()
     if not (args.type or args.base or args.prefix or args.suffix or args.unique):
         parser.error('give at least one of --type, --base, --prefix, --suffix, --unique')
     return args
+
+
+def split_minimum(spec):
+    """"Obsidian:38" -> ("Obsidian", 38): the first number the affix shows in game must be at least 38."""
+    name, sep, minimum = spec.rpartition(':')
+    if sep and minimum.isdigit():
+        return name, int(minimum)
+    return spec, None
 
 
 def check_names(args):
@@ -54,7 +62,7 @@ def check_names(args):
     known['type'] = {'ring', 'amulet', 'sword', 'axe', 'mace', 'bow', 'staff', 'helm', 'shield', 'light_armor', 'medium_armor', 'heavy_armor'}
     for kind, names in (('type', args.type), ('base', args.base), ('prefix', args.prefix), ('suffix', args.suffix), ('unique', args.unique)):
         for name in names:
-            name = name.lower()
+            name = split_minimum(name)[0].lower()
             if kind == 'suffix' and name.startswith('of '):
                 name = name[3:]
             if name not in known[kind]:
@@ -67,13 +75,15 @@ class Wishlist:
         lower = lambda names: [n.lower() for n in names]
         self.types = set(lower(args.type))
         self.bases = set(lower(args.base))
-        self.prefixes = set(lower(args.prefix))
-        self.suffixes = {s[3:] if s.startswith('of ') else s for s in lower(args.suffix)}
+        self.prefixes = dict(split_minimum(p) for p in lower(args.prefix))
+        self.suffixes = {}
+        for spec in lower(args.suffix):
+            name, minimum = split_minimum(spec)
+            self.suffixes[name[3:] if name.startswith('of ') else name] = minimum
         self.uniques = set(lower(args.unique))
         self.either = args.either
         self.difficulty = args.difficulty
-        self.min_prefix = args.min_prefix_value
-        self.min_suffix = args.min_suffix_value
+        self.min_roll = args.min_roll
 
     def matches(self, row):
         if self.difficulty is not None and int(row['difficulty']) != self.difficulty:
@@ -84,8 +94,8 @@ class Wishlist:
             return False
         if self.uniques and row['unique_name'].lower() not in self.uniques:
             return False
-        has_prefix = row['prefix'].lower() in self.prefixes
-        has_suffix = row['suffix'].lower() in self.suffixes
+        has_prefix = self.affix_ok(self.prefixes, row['prefix'], row['prefix_value']) and self.roll_ok(row['prefix_roll'])
+        has_suffix = self.affix_ok(self.suffixes, row['suffix'], row['suffix_value']) and self.roll_ok(row['suffix_roll'])
         if self.prefixes and self.suffixes:
             if not ((has_prefix or has_suffix) if self.either else (has_prefix and has_suffix)):
                 return False
@@ -93,11 +103,18 @@ class Wishlist:
             return False
         elif self.suffixes and not has_suffix:
             return False
-        if self.min_prefix is not None and (row['prefix_value'] == '' or int(row['prefix_value']) < self.min_prefix):
-            return False
-        if self.min_suffix is not None and (row['suffix_value'] == '' or int(row['suffix_value']) < self.min_suffix):
-            return False
         return True
+
+    def roll_ok(self, roll):
+        return self.min_roll is None or (roll != '' and int(roll) >= self.min_roll)
+
+    @staticmethod
+    def affix_ok(wanted, name, value):
+        name = name.lower()
+        if name not in wanted:
+            return False
+        minimum = wanted[name]
+        return minimum is None or (value != '' and int(value) >= minimum)
 
 
 class Worker:
@@ -187,7 +204,7 @@ ITEM_HEADER = [
     'prefix', 'prefix_text', 'prefix_value', 'prefix_value2',
     'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
     'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
-    'item_value', 'name', 'idx', 'iseed', 'create_info',
+    'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
 ]
 
 

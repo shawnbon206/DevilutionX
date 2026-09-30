@@ -639,35 +639,6 @@ string_view ItemTypeName(ItemType type)
 	}
 }
 
-// Items don't keep which affix table entry they rolled, only its power type and the name it produced.
-const PLStruct *FindPrefix(const Item &item)
-{
-	if (item._iPrePower == IPL_INVALID)
-		return nullptr;
-	const string_view name = item._iIName;
-	for (int j = 0; ItemPrefixes[j].power.type != IPL_INVALID; j++) {
-		const PLStruct &prefix = ItemPrefixes[j];
-		const string_view prefixName = prefix.PLName;
-		if (prefix.power.type == item._iPrePower && name.size() > prefixName.size() && name.substr(0, prefixName.size()) == prefixName && name[prefixName.size()] == ' ')
-			return &prefix;
-	}
-	return nullptr;
-}
-
-const PLStruct *FindSuffix(const Item &item)
-{
-	if (item._iSufPower == IPL_INVALID)
-		return nullptr;
-	const string_view name = item._iIName;
-	for (int j = 0; ItemSuffixes[j].power.type != IPL_INVALID; j++) {
-		const PLStruct &suffix = ItemSuffixes[j];
-		const std::string ending = StrCat(" of ", suffix.PLName);
-		if (suffix.power.type == item._iSufPower && name.size() > ending.size() && name.substr(name.size() - ending.size()) == ending)
-			return &suffix;
-	}
-	return nullptr;
-}
-
 // The first two numbers of an affix as the item panel shows it, e.g. "to hit: +20%, +150% damage" -> 20, 150.
 std::array<std::string, 2> PowerNumbers(string_view text)
 {
@@ -686,34 +657,99 @@ std::array<std::string, 2> PowerNumbers(string_view text)
 	return numbers;
 }
 
+// Where a rolled affix value sits in the affix's range: 0 is the lowest possible roll, 100 the highest.
+// Affixes with a single possible value count as 100. Nothing when the item doesn't fit this entry.
+std::optional<int> RollPercent(const PLStruct &affix, const Item &item, const std::array<std::string, 2> &numbers)
+{
+	const int low = std::min(std::abs(affix.power.param1), std::abs(affix.power.param2));
+	const int high = std::max(std::abs(affix.power.param1), std::abs(affix.power.param2));
+	if (low == high)
+		return 100;
+	if (affix.power.type == IPL_DUR) {
+		// The durability bonus isn't shown; SaveItemPower adds r% of the base item's durability.
+		const int base = AllItemsList[item.IDidx].iDurability;
+		if (base == 0)
+			return std::nullopt;
+		const int rolled = (item._iMaxDur - base) * 100 / base;
+		return std::clamp((rolled - low) * 100 / (high - low), 0, 100);
+	}
+	// The shown number that falls inside the range is the rolled one; King's, for example, shows to-hit
+	// first and then the rolled damage.
+	for (const std::string &number : numbers) {
+		if (number.empty())
+			continue;
+		const int value = std::abs(std::stoi(number));
+		if (value >= low && value <= high)
+			return (value - low) * 100 / (high - low);
+	}
+	return std::nullopt;
+}
+
+struct AffixRoll {
+	const PLStruct *affix = nullptr;
+	std::optional<int> roll;
+};
+
+// Items don't keep which affix table entry they rolled, only its power type and the name it produced.
+// Some names appear twice with different ranges (Crimson), so the entry the shown value fits wins.
+AffixRoll FindAffix(const PLStruct *table, item_effect_type power, bool isPrefix, const Item &item, const std::array<std::string, 2> &numbers)
+{
+	AffixRoll found;
+	if (power == IPL_INVALID)
+		return found;
+	const string_view name = item._iIName;
+	for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
+		const PLStruct &affix = table[j];
+		if (affix.power.type != power)
+			continue;
+		const std::string part = isPrefix ? StrCat(affix.PLName, " ") : StrCat(" of ", affix.PLName);
+		if (name.size() <= part.size())
+			continue;
+		if ((isPrefix ? name.substr(0, part.size()) : name.substr(name.size() - part.size())) != part)
+			continue;
+		const std::optional<int> roll = RollPercent(affix, item, numbers);
+		if (found.affix == nullptr || (roll && !found.roll))
+			found = { &affix, roll };
+	}
+	return found;
+}
+
+std::string RollText(std::optional<int> roll)
+{
+	return roll ? std::to_string(*roll) : "";
+}
+
 constexpr string_view ItemCsvHeader = "game_seed,difficulty,dlvl,set_level,source_kind,source_name,source_index,"
                                       "item_type,base_item,item_level,quality,"
                                       "prefix,prefix_text,prefix_value,prefix_value2,"
                                       "suffix,suffix_text,suffix_value,suffix_value2,"
                                       "unique_name,spell,charges,min_dam,max_dam,ac,max_dur,req_str,req_mag,req_dex,"
-                                      "item_value,name,idx,iseed,create_info\n";
+                                      "item_value,name,idx,iseed,create_info,prefix_roll,suffix_roll\n";
 
 std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level, const Drop &drop)
 {
 	const Item &item = drop.item;
-	const PLStruct *prefix = FindPrefix(item);
-	const PLStruct *suffix = FindSuffix(item);
-	const std::string prefixText = prefix != nullptr ? std::string(PrintItemPower(item._iPrePower, item).str()) : "";
-	const std::string suffixText = suffix != nullptr ? std::string(PrintItemPower(item._iSufPower, item).str()) : "";
-	const auto prefixNumbers = PowerNumbers(prefixText);
-	const auto suffixNumbers = PowerNumbers(suffixText);
+	const std::string prefixPower = item._iPrePower != IPL_INVALID ? std::string(PrintItemPower(item._iPrePower, item).str()) : "";
+	const std::string suffixPower = item._iSufPower != IPL_INVALID ? std::string(PrintItemPower(item._iSufPower, item).str()) : "";
+	const auto prefixNumbers = PowerNumbers(prefixPower);
+	const auto suffixNumbers = PowerNumbers(suffixPower);
+	const AffixRoll prefix = FindAffix(ItemPrefixes, item._iPrePower, true, item, prefixNumbers);
+	const AffixRoll suffix = FindAffix(ItemSuffixes, item._iSufPower, false, item, suffixNumbers);
+	const std::string prefixText = prefix.affix != nullptr ? prefixPower : "";
+	const std::string suffixText = suffix.affix != nullptr ? suffixPower : "";
 	const bool isUnique = item._iMagical == ITEM_QUALITY_UNIQUE;
 	const bool hasSpell = item._iSpell != SpellID::Null && item._iMiscId == IMISC_STAFF;
 
-	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
 	    gameSeed, static_cast<int>(difficulty), level.dlvl, level.setLevel == SL_NONE ? "" : CsvField(GetSetLevelQuest(level.setLevel).name),
 	    SourceKindName(drop.kind), CsvField(drop.sourceName), drop.sourceIndex,
 	    ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL, isUnique ? "unique" : "magic",
-	    prefix != nullptr ? CsvField(prefix->PLName) : "", CsvField(prefixText), prefixNumbers[0], prefixNumbers[1],
-	    suffix != nullptr ? CsvField(suffix->PLName) : "", CsvField(suffixText), suffixNumbers[0], suffixNumbers[1],
+	    prefix.affix != nullptr ? CsvField(prefix.affix->PLName) : "", CsvField(prefixText), prefix.affix != nullptr ? prefixNumbers[0] : "", prefix.affix != nullptr ? prefixNumbers[1] : "",
+	    suffix.affix != nullptr ? CsvField(suffix.affix->PLName) : "", CsvField(suffixText), suffix.affix != nullptr ? suffixNumbers[0] : "", suffix.affix != nullptr ? suffixNumbers[1] : "",
 	    isUnique ? CsvField(UniqueItems[item._iUid].UIName) : "", hasSpell ? CsvField(GetSpellData(item._iSpell).sNameText) : "", hasSpell ? std::to_string(item._iMaxCharges) : "",
 	    item._iMinDam, item._iMaxDam, item._iAC, item._iMaxDur, item._iMinStr, item._iMinMag, item._iMinDex,
-	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo);
+	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo,
+	    RollText(prefix.roll), RollText(suffix.roll));
 }
 
 constexpr string_view GameCsvHeader = "game_seed,difficulty,quests,set_levels,hung_levels,item_rows,items_end\n";
