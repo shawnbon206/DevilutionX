@@ -31,7 +31,7 @@ Simulate whole days, then search them instantly (and get odds, e.g. does a combi
 Wishlist options (search and find):
   --type ring amulet ...     sword axe mace bow staff helm shield light_armor medium_armor heavy_armor
   --base Maul "Great Axe"    base items
-  --prefix "King's" Gold   prefixes; the item's prefix must be one of them
+  --prefix "King's" Gold     prefixes; the item's prefix must be one of them
   --suffix haste life ...    suffixes; "of " is optional. With both lists the item needs both,
   --either                   ...or with --either, one of the two is enough
   --unique "Harlequin Crest" unique items
