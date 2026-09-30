@@ -49,8 +49,11 @@ if (-not $Command -or $Command -in 'help', '--help', '-help', '/?') {
 	return
 }
 if ($Command -notin 'search', 'simulate', 'status', 'stop', 'load', 'find', 'supervise') {
-	Write-Output "Unknown command '$Command'.`n"
-	Write-Output $Usage
+	if ($Command.StartsWith('--')) {
+		Write-Output "The command goes first, before the wishlist: drops.ps1 search <minutes> $Command ... (or drops.ps1 find ...)."
+	} else {
+		Write-Output "Unknown command '$Command'. Commands: search, simulate, status, stop, load, find. See drops.ps1 --help."
+	}
 	exit 1
 }
 if ($Arguments -contains '--help') {
