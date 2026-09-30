@@ -6,20 +6,26 @@ Runs the drop statistics simulation in parallel worker processes and keeps them 
 Copies drop_stats_test.exe, its DLLs and assets into <OutDir>\bin so the build folder stays free for
 rebuilding, then starts one worker per seed block and stays open as a supervisor: a worker that exits
 early (a level that hangs the game's level generator makes it exit, see hung_<n>.csv) is restarted
-and continues without that level. Keep this
-window open until it says the run is done.
+and continues without that level. Keep this window open until it says the run is done.
 
 Running the script again with the same OutDir resumes every worker where it stopped, using the seed
 blocks saved in run.json. Load the results with load_drop_stats.py, which can run at any time.
 
+-Day simulates every second of one local calendar day (the seeds a game created that day can have)
+into its own folder, drop-stats-day-<date>, unless -OutDir is given.
+
 .EXAMPLE
 .\test\drop_stats\run_drop_stats.ps1 -Hours 10
+
+.EXAMPLE
+.\test\drop_stats\run_drop_stats.ps1 -Day 2026-10-03
 
 .EXAMPLE
 .\test\drop_stats\run_drop_stats.ps1 -Status
 #>
 param(
 	[string]$OutDir = (Join-Path $HOME 'drop-stats-data'),
+	[string]$Day,
 	[int]$Workers = 20,
 	[double]$Hours = 10,
 	[long]$FirstSeed = 0,
@@ -30,6 +36,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($Day) {
+	$midnight = [DateTime]::ParseExact($Day, 'yyyy-MM-dd', $null)
+	$dayStart = ([DateTimeOffset]$midnight).ToUnixTimeSeconds()
+	# Daylight saving changes make some days 23 or 25 hours long.
+	$dayEnd = ([DateTimeOffset]$midnight.AddDays(1)).ToUnixTimeSeconds()
+	$FirstSeed = $dayStart
+	$SeedsPerWorker = [Math]::Ceiling(($dayEnd - $dayStart) / $Workers)
+	if (-not $PSBoundParameters.ContainsKey('OutDir')) {
+		$OutDir = Join-Path $HOME "drop-stats-day-$Day"
+	}
+}
 $runFile = Join-Path $OutDir 'run.json'
 
 function Get-Workers {
