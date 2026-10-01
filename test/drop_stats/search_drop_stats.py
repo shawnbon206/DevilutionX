@@ -221,14 +221,16 @@ def same_drop(item):
 
 
 def print_drop(drop):
+    """Prints one drop like a log entry: the item flush left, the rest indented."""
     item = drop['item']
     powers = ', '.join(t for t in (item['prefix_text'], item['suffix_text']) if t)
     where = item['set_level'] or f"dlvl {item['dlvl']}"
     difficulties = ', '.join(DIFFICULTIES[d] for d in sorted(drop['difficulties']))
-    warning = f"   (the game hangs entering {drop['hung']}, stay out of it)" if drop['hung'] else ''
     print(f"{item['name']}   {powers}" if powers else item['name'])
-    print(f"  {seed_code(item)}   {where}, {item['source_name']} at {item['source_x']},{item['source_y']}   {difficulties}   {short_time(int(item['game_seed']))}{warning}")
-    print()
+    print(f"  {seed_code(item)}   {where}, {item['source_name']} at {item['source_x']},{item['source_y']}")
+    print(f"  {difficulties}   {short_time(int(item['game_seed']))}")
+    if drop['hung']:
+        print(f"  The game hangs entering {drop['hung']}; stay out of it.")
 
 
 def main():
@@ -246,7 +248,9 @@ def main():
     print(f'  Full quests in Multiplayer   {on_off(args.full_quests)}')
     print(f'  Randomize Quests             {on_off(args.randomize_quests)}')
     print(f'  Games created from           {short_time(first_seed)}')
-    print(f'  Running                      {how_long} on {args.workers} workers   (Ctrl+C stops early and shows the best seeds)')
+    print(f'  Running                      {how_long} on {args.workers} workers')
+    print()
+    print('Ctrl+C stops early and shows the best seeds.')
     print(flush=True)
     lines = queue.Queue()
     hung = []
@@ -296,7 +300,7 @@ def main():
             elif worker is not None and line.startswith(f'worker {worker.index} finished'):
                 worker.finished = True
             if time.time() - last_progress >= 60:
-                print(f'  ... {seeds_done:,} seeds searched, up to {short_time(last_seed)}, {len(drops_by_seed):,} with a match\n', flush=True)
+                print(f'... {seeds_done:,} seeds searched, up to {short_time(last_seed)}, {len(drops_by_seed):,} with a match', flush=True)
                 last_progress = time.time()
     except KeyboardInterrupt:
         print('\nStopping...')
@@ -318,6 +322,7 @@ def main():
         for seed in best:
             for drop in drops_by_seed[seed].values():
                 print_drop(drop)
+            print()
 
 
 if __name__ == '__main__':
