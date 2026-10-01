@@ -737,18 +737,8 @@ std::string RollText(std::optional<int> roll)
 	return roll ? std::to_string(*roll) : "";
 }
 
-// The tile of the level's first trigger with this message, as text columns "x,y", or ",".
-std::string TriggerColumns(interface_mode message)
-{
-	for (int i = 0; i < numtrigs; i++) {
-		if (trigs[i]._tmsg == message)
-			return fmt::format("{},{}", trigs[i].position.x, trigs[i].position.y);
-	}
-	return ",";
-}
-
-// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py. The last ones locate the
-// source and the level's stairs: up (on a set level, its exit), down, and up to town on dlvl 5, 9 and 13.
+// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py; the last two are the tile the
+// source starts on.
 std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level, const Drop &drop)
 {
 	const Item &item = drop.item;
@@ -763,7 +753,7 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	const bool isUnique = item._iMagical == ITEM_QUALITY_UNIQUE;
 	const bool hasSpell = item._iSpell != SpellID::Null && item._iMiscId == IMISC_STAFF;
 
-	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
 	    gameSeed, static_cast<int>(difficulty), level.dlvl, level.setLevel == SL_NONE ? "" : CsvField(GetSetLevelQuest(level.setLevel).name),
 	    SourceKindName(drop.kind), CsvField(drop.sourceName), drop.sourceIndex,
 	    ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL, isUnique ? "unique" : "magic",
@@ -773,8 +763,7 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	    item._iMinDam, item._iMaxDam, item._iAC, item._iMaxDur, item._iMinStr, item._iMinMag, item._iMinDex,
 	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo,
 	    RollText(prefix.roll), RollText(suffix.roll),
-	    drop.position.x, drop.position.y, TriggerColumns(level.setLevel == SL_NONE ? WM_DIABPREVLVL : WM_DIABRTNLVL), TriggerColumns(WM_DIABNEXTLVL),
-	    TriggerColumns(WM_DIABTWARPUP));
+	    drop.position.x, drop.position.y);
 }
 
 std::optional<uint64_t> EnvNumber(const char *name)

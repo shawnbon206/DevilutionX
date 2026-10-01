@@ -31,7 +31,7 @@ ITEM_HEADER = [
     'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
     'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
     'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
-    'source_x', 'source_y', 'up_x', 'up_y', 'down_x', 'down_y', 'town_x', 'town_y',
+    'source_x', 'source_y',
 ]
 
 
@@ -193,18 +193,10 @@ class Worker:
         return True
 
 
-def where_in_level(item):
-    """The source's starting tile and the level's stairs, in the game's tile coordinates: (0, 0) is the top
-    corner of the map, x runs toward the bottom-right edge and y toward the bottom-left edge."""
-    stairs = [('stairs up' if not item['set_level'] else 'entrance', 'up'), ('stairs down', 'down'), ('town stairs', 'town')]
-    known = [f"{name} ({item[key + '_x']}, {item[key + '_y']})" for name, key in stairs if item[key + '_x'] != '']
-    return f"at ({item['source_x']}, {item['source_y']})" + (f"; {', '.join(known)}" if known else '')
-
-
 def describe(item):
     powers = ', '.join(t for t in (item['prefix_text'], item['suffix_text']) if t)
     where = item['set_level'] or f"dlvl {item['dlvl']}"
-    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']} {where_in_level(item)}"
+    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']} at ({item['source_x']}, {item['source_y']})"
 
 
 def print_game(seed, difficulty, items, hung):
