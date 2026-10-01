@@ -208,18 +208,26 @@ def seed_code(item):
     return f"{item['game_seed']}-{level}:{target}"
 
 
-def describe(item):
+def short_time(game_seed):
+    """The game's creation time, with the date only when it isn't today."""
+    created = datetime.datetime.fromtimestamp(game_seed)
+    pattern = '%I:%M %p' if created.date() == datetime.date.today() else '%b %d %I:%M %p'
+    return created.strftime(pattern).replace(' 0', ' ').lstrip('0')
+
+
+def same_drop(item):
+    """Items that are the same drop on different difficulties: same item, same level, same source."""
+    return tuple(item[key] for key in ('name', 'prefix_text', 'suffix_text', 'dlvl', 'set_level', 'source_index', 'source_x', 'source_y'))
+
+
+def print_drop(drop):
+    item = drop['item']
     powers = ', '.join(t for t in (item['prefix_text'], item['suffix_text']) if t)
     where = item['set_level'] or f"dlvl {item['dlvl']}"
-    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']} at ({item['source_x']}, {item['source_y']}), code {seed_code(item)}"
-
-
-def print_game(seed, difficulty, items, hung):
-    warning = f'  WARNING: the game hangs entering {hung}, stay out of it' if hung else ''
-    print(f'  seed {seed} ({DIFFICULTIES[difficulty]}): {len(items)} matching{warning}')
-    print(f'      created {creation_time(seed)}')
-    for item in items:
-        print(f'      {describe(item)}')
+    difficulties = ', '.join(DIFFICULTIES[d] for d in sorted(drop['difficulties']))
+    warning = f"   (the game hangs entering {drop['hung']}, stay out of it)" if drop['hung'] else ''
+    print(f"{item['name']}   {powers}" if powers else item['name'])
+    print(f"  {seed_code(item)}   {where}, {item['source_name']} at {item['source_x']},{item['source_y']}   {difficulties}   {short_time(int(item['game_seed']))}{warning}")
 
 
 def main():
@@ -242,7 +250,7 @@ def main():
     running = len(workers)
     pending = {}
     hits = {}
-    hung_levels = {}
+    drops_by_seed = {}
     searched = [0, 0, 0]
     seeds_done = 0
     last_seed = first_seed
@@ -267,9 +275,14 @@ def main():
                 searched[difficulty] += 1
                 if (seed, difficulty) in pending:
                     hits[(seed, difficulty)] = pending.pop((seed, difficulty))
-                    hung_levels[(seed, difficulty)] = skipped
-                    print_game(seed, difficulty, hits[(seed, difficulty)], skipped)
+                    drops = drops_by_seed.setdefault(seed, {})
+                    for item in hits[(seed, difficulty)]:
+                        drop = drops.setdefault(same_drop(item), {'item': item, 'difficulties': set(), 'hung': skipped})
+                        drop['difficulties'].add(difficulty)
+                # A worker sends all three difficulties of a seed together, Hell last.
                 if difficulty == 2:
+                    for drop in drops_by_seed.get(seed, {}).values():
+                        print_drop(drop)
                     worker.next_seed = seed + args.workers
                     seeds_done += 1
                     last_seed = max(last_seed, seed)
@@ -295,11 +308,12 @@ def main():
         matching = sum(1 for k in hits if k[1] == difficulty)
         odds = f'1 in {searched[difficulty] / matching:,.0f}' if matching else 'none'
         print(f'  {DIFFICULTIES[difficulty]:<10} {matching:,} of {searched[difficulty]:,} games have a match ({odds})')
-    if hits:
-        print(f'\nBest seeds (up to {args.seeds}):')
-        best = sorted(hits, key=lambda k: (-len(hits[k]), k[0]))[:args.seeds]
-        for key in best:
-            print_game(key[0], key[1], hits[key], hung_levels.get(key, ''))
+    if drops_by_seed:
+        print(f'\nBest seeds, most matching drops first (up to {args.seeds}):')
+        best = sorted(drops_by_seed, key=lambda seed: (-len(drops_by_seed[seed]), seed))[:args.seeds]
+        for seed in best:
+            for drop in drops_by_seed[seed].values():
+                print_drop(drop)
 
 
 if __name__ == '__main__':
