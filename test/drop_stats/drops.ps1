@@ -20,7 +20,7 @@ Searches seeds from right now on, printing matching games as they are found:
   drops.ps1 search <minutes> <wishlist>
   drops.ps1 search 5 --type ring amulet --prefix Obsidian Gold "Dragon's" --suffix life "the zodiac" --min-roll 80
   <minutes> 0 searches until Ctrl+C, e.g. in the background while you play. Ctrl+C always stops
-  and prints the best seeds. About 39 seeds a second on 20 workers; --workers 10 leaves more CPU free.
+  and prints a summary. About 39 seeds a second on 20 workers; --workers 10 leaves more CPU free.
 
 Wishlist options:
   --type ring amulet ...     sword axe mace bow staff helm shield light_armor medium_armor heavy_armor
@@ -32,7 +32,6 @@ Wishlist options:
   --min-roll 80              each wanted affix rolled at least 80% of the way up its own range
   Name:N                     a minimum for one affix's first shown number, e.g. --prefix Obsidian:39
   --difficulty hell          normal, nightmare, hell, or 1, 2, 3; several allowed (default: all three)
-  --seeds 50                 how many of the best seeds to list (default 20)
   --full-quests off          for games hosted with Full quests in Multiplayer off (default on)
   --randomize-quests off     for games hosted with Randomize Quests off (default on)
 Names are not case-sensitive; quote names with spaces or apostrophes. More: drops.ps1 search --help

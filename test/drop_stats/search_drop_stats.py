@@ -3,7 +3,7 @@
 Usually run through drops.ps1 search, which prepares the simulator. Directly:
     python test/drop_stats/search_drop_stats.py --bin ~/drop-stats/search-bin --minutes 5 --type ring --prefix Gold --suffix Life
 
---minutes 0 searches until Ctrl+C. Ctrl+C always stops and still prints the best seeds found so far.
+--minutes 0 searches until Ctrl+C. Ctrl+C always stops and still prints the summary.
 The workers send their items straight to this script, so a search can run for hours without using disk.
 
 A prefix or suffix can carry a minimum for the first number it shows, e.g. --prefix Obsidian:38 Gold:28.
@@ -53,7 +53,6 @@ def parse_args():
                         help='the "Full quests in Multiplayer" setting the host will create the game with (default on)')
     parser.add_argument('--randomize-quests', choices=['on', 'off', '1', '0'], default='on',
                         help='the Randomize Quests setting the host will create the game with (default on)')
-    parser.add_argument('--seeds', type=int, default=20, help='how many of the best seeds to list at the end')
     args = parser.parse_args()
     args.full_quests = args.full_quests in ('on', '1')
     difficulties = {'normal': 0, 'nightmare': 1, 'hell': 2, '1': 0, '2': 1, '3': 2}
@@ -250,7 +249,7 @@ def main():
     print(f'  Games created from           {short_time(first_seed)}')
     print(f'  Running                      {how_long} on {args.workers} workers')
     print()
-    print('Ctrl+C stops early and shows the best seeds.')
+    print('Ctrl+C stops early.')
     print(flush=True)
     lines = queue.Queue()
     hung = []
@@ -316,13 +315,6 @@ def main():
         matching = sum(1 for k in hits if k[1] == difficulty)
         odds = f'1 in {searched[difficulty] / matching:,.0f}' if matching else 'none'
         print(f'  {DIFFICULTIES[difficulty]:<11}{matching:>8,} of {searched[difficulty]:,} games   {odds}')
-    if drops_by_seed:
-        print(f'\nBest seeds, most matching drops first (up to {args.seeds})\n')
-        best = sorted(drops_by_seed, key=lambda seed: (-len(drops_by_seed[seed]), seed))[:args.seeds]
-        for seed in best:
-            for drop in drops_by_seed[seed].values():
-                print_drop(drop)
-            print()
 
 
 if __name__ == '__main__':
