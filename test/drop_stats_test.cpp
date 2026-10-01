@@ -40,13 +40,14 @@
 namespace devilution {
 namespace {
 
-// Must match "Randomize Quests" in the game creator's diablo.ini: on unless DROPSTATS_RANDOMIZE_QUESTS=0.
-// Joiners take the creator's quest states via DeltaSyncJunk.
-bool RandomizeQuests()
-{
-	const char *value = std::getenv("DROPSTATS_RANDOMIZE_QUESTS");
-	return value == nullptr || string_view(value) != "0";
-}
+// Must match "MultiplayerFullQuests" and "Randomize Quests" in the game creator's diablo.ini; joiners take the
+// creator's quest states via DeltaSyncJunk. The search worker sets them from DROPSTATS_FULL_QUESTS and
+// DROPSTATS_RANDOMIZE_QUESTS.
+struct QuestSettings {
+	bool fullQuests = true;
+	bool randomizeQuests = true;
+};
+QuestSettings Settings;
 
 std::string MpqDir()
 {
@@ -82,8 +83,8 @@ void StartMultiplayerGame(uint32_t gameSeed, _difficulty difficulty)
 	gbIsMultiplayer = true;
 	sgGameInitInfo.dwSeed = gameSeed;
 	sgGameInitInfo.nDifficulty = difficulty;
-	sgGameInitInfo.fullQuests = 1;
-	sgOptions.Gameplay.randomizeQuests.SetValue(RandomizeQuests());
+	sgGameInitInfo.fullQuests = Settings.fullQuests ? 1 : 0;
+	sgOptions.Gameplay.randomizeQuests.SetValue(Settings.randomizeQuests);
 	sgGameInitInfo.bTheoQuest = 0;
 	sgGameInitInfo.bCowQuest = 0;
 
@@ -129,12 +130,15 @@ std::string LevelName(LevelId level)
 	return GetSetLevelQuest(level.setLevel).name;
 }
 
-// Dungeon levels 1-16 plus the quest set levels this game's quest roll made reachable.
+// Dungeon levels 1-16 plus the quest set levels this game's quest roll made reachable. Without full quests
+// there are none: the Skeleton King and Lazarus are placed on dlvl 3 and 15 instead (PlaceQuestMonsters).
 std::vector<LevelId> ReachableLevels()
 {
 	std::vector<LevelId> levels;
 	for (uint8_t dlvl = 1; dlvl <= 16; dlvl++)
 		levels.push_back({ dlvl });
+	if (UseMultiplayerQuests())
+		return levels;
 	for (const SetLevelQuest &entry : SetLevelQuests) {
 		const Quest &quest = Quests[entry.quest];
 		if (quest._qactive != QUEST_NOTAVAIL)
@@ -789,26 +793,34 @@ TEST_F(DropStats, DryRunMatchesRealDrops)
 {
 	const uint32_t gameSeeds[] = { 1, 42, 123456789, 987654321 };
 	const _difficulty difficulties[] = { DIFF_NORMAL, DIFF_NIGHTMARE, DIFF_HELL };
-	size_t comparedItems = 0;
-	size_t wantedItems = 0;
-	size_t setLevels = 0;
-	for (uint32_t gameSeed : gameSeeds) {
-		for (_difficulty difficulty : difficulties) {
-			StartMultiplayerGame(gameSeed, difficulty);
-			for (LevelId level : ReachableLevels()) {
+	// Randomize Quests only matters with full quests.
+	const QuestSettings settingsToCheck[] = { { true, true }, { true, false }, { false, true } };
+	for (const QuestSettings &settings : settingsToCheck) {
+		Settings = settings;
+		size_t comparedItems = 0;
+		size_t wantedItems = 0;
+		size_t setLevels = 0;
+		for (uint32_t gameSeed : gameSeeds) {
+			for (_difficulty difficulty : difficulties) {
 				StartMultiplayerGame(gameSeed, difficulty);
-				GenerateLevel(level);
-				const std::vector<Drop> predicted = DryRunLevelDrops();
-				const std::vector<Drop> actual = RealLevelDrops();
-				ASSERT_EQ(GroupBySource(predicted), GroupBySource(actual)) << "seed " << gameSeed << " difficulty " << difficulty << " " << LevelName(level);
-				comparedItems += actual.size();
-				wantedItems += std::count_if(actual.begin(), actual.end(), [](const Drop &drop) { return IsWanted(drop.item); });
-				if (level.setLevel != SL_NONE)
-					setLevels++;
+				for (LevelId level : ReachableLevels()) {
+					StartMultiplayerGame(gameSeed, difficulty);
+					GenerateLevel(level);
+					const std::vector<Drop> predicted = DryRunLevelDrops();
+					const std::vector<Drop> actual = RealLevelDrops();
+					ASSERT_EQ(GroupBySource(predicted), GroupBySource(actual)) << "full quests " << settings.fullQuests << " randomized " << settings.randomizeQuests
+					                                                           << " seed " << gameSeed << " difficulty " << difficulty << " " << LevelName(level);
+					comparedItems += actual.size();
+					wantedItems += std::count_if(actual.begin(), actual.end(), [](const Drop &drop) { return IsWanted(drop.item); });
+					if (level.setLevel != SL_NONE)
+						setLevels++;
+				}
 			}
 		}
+		std::cout << "full quests " << settings.fullQuests << ", randomized quests " << settings.randomizeQuests << ": compared " << comparedItems
+		          << " drops (" << setLevels << " set levels included), " << wantedItems << " two-affix or unique\n";
 	}
-	std::cout << "compared " << comparedItems << " drops (" << setLevels << " set levels included), " << wantedItems << " two-affix or unique\n";
+	Settings = {};
 }
 
 TEST_F(DropStats, DryRunTimingAndSample)
@@ -909,7 +921,8 @@ TEST_F(DropStats, TraceSeed)
 
 // One worker of drops.ps1 search (test/drop_stats/search_drop_stats.py), driven by environment variables:
 // DROPSTATS_FIRST_SEED, DROPSTATS_SEED_STEP (every n-th seed, so workers interleave), and optionally
-// DROPSTATS_STOP_AT (unix time), DROPSTATS_SKIP_LEVELS and DROPSTATS_WORKER. Rows go to stdout: an "I," row per
+// DROPSTATS_STOP_AT (unix time), DROPSTATS_SKIP_LEVELS, DROPSTATS_WORKER, DROPSTATS_FULL_QUESTS and
+// DROPSTATS_RANDOMIZE_QUESTS (0 or 1, default 1). Rows go to stdout: an "I," row per
 // magic or unique item (columns as ItemCsvRow), then "G,<seed>,<difficulty>,<levels left out>" per game.
 TEST_F(DropStats, SearchWorker)
 {
@@ -919,6 +932,8 @@ TEST_F(DropStats, SearchWorker)
 	const uint64_t seedStep = std::max<uint64_t>(EnvNumber("DROPSTATS_SEED_STEP").value_or(1), 1);
 	const std::optional<uint64_t> stopAt = EnvNumber("DROPSTATS_STOP_AT");
 	const auto worker = static_cast<unsigned long long>(EnvNumber("DROPSTATS_WORKER").value_or(0));
+	Settings.fullQuests = EnvNumber("DROPSTATS_FULL_QUESTS").value_or(1) != 0;
+	Settings.randomizeQuests = EnvNumber("DROPSTATS_RANDOMIZE_QUESTS").value_or(1) != 0;
 
 	// For some seeds the game's own level generator loops forever on one level (seen in the catacombs). The
 	// watchdog below reports the level and exits, and the search restarts the worker with that level in
