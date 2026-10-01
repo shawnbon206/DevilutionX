@@ -40,7 +40,7 @@
 namespace devilution {
 namespace {
 
-// Must match "MultiplayerFullQuests" and "Randomize Quests" in the game creator's diablo.ini; joiners take the
+// Must match "Full quests in Multiplayer" and "Randomize Quests" in the game creator's settings; joiners take the
 // creator's quest states via DeltaSyncJunk. The search worker sets them from DROPSTATS_FULL_QUESTS and
 // DROPSTATS_RANDOMIZE_QUESTS.
 struct QuestSettings {

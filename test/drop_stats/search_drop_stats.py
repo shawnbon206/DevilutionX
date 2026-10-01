@@ -50,13 +50,13 @@ def parse_args():
     parser.add_argument('--either', action='store_true', help='prefix OR suffix on the lists instead of both')
     parser.add_argument('--difficulty', type=int, choices=[0, 1, 2], help='0 Normal, 1 Nightmare, 2 Hell (default: all)')
     parser.add_argument('--min-roll', type=int, help='each wanted prefix and suffix must have rolled at least this far up its range, 0-100; 80 means the top fifth')
-    parser.add_argument('--multiplayer-full-quests', choices=['on', 'off', '1', '0'], default='on',
-                        help='the MultiplayerFullQuests setting the host will create the game with (default on)')
+    parser.add_argument('--full-quests', choices=['on', 'off', '1', '0'], default='on',
+                        help='the "Full quests in Multiplayer" setting the host will create the game with (default on)')
     parser.add_argument('--randomize-quests', choices=['on', 'off', '1', '0'], default='on',
                         help='the Randomize Quests setting the host will create the game with (default on)')
     parser.add_argument('--seeds', type=int, default=20, help='how many of the best seeds to list at the end')
     args = parser.parse_args()
-    args.multiplayer_full_quests = args.multiplayer_full_quests in ('on', '1')
+    args.full_quests = args.full_quests in ('on', '1')
     args.randomize_quests = args.randomize_quests in ('on', '1')
     if not (args.type or args.base or args.prefix or args.suffix or args.unique):
         parser.error('give at least one of --type, --base, --prefix, --suffix, --unique')
@@ -158,7 +158,7 @@ class Worker:
         self.start()
 
     def start(self):
-        env = dict(os.environ, DROPSTATS_WORKER=str(self.index), DROPSTATS_FULL_QUESTS='1' if self.args.multiplayer_full_quests else '0',
+        env = dict(os.environ, DROPSTATS_WORKER=str(self.index), DROPSTATS_FULL_QUESTS='1' if self.args.full_quests else '0',
                    DROPSTATS_RANDOMIZE_QUESTS='1' if self.args.randomize_quests else '0',
                    DROPSTATS_FIRST_SEED=str(self.next_seed), DROPSTATS_SEED_STEP=str(self.args.workers),
                    DROPSTATS_SKIP_LEVELS=';'.join(f'{seed}:{dlvl}:{set_level}' for seed, dlvl, set_level in self.hung if seed == self.next_seed))
@@ -227,7 +227,7 @@ def main():
     signal.signal(signal.SIGBREAK, signal.default_int_handler)
 
     on_off = lambda value: 'ON' if value else 'OFF'
-    print(f'For games hosted in Diablo mode with MultiplayerFullQuests {on_off(args.multiplayer_full_quests)} and '
+    print(f'For games hosted in Diablo mode with Full quests in Multiplayer {on_off(args.full_quests)} and '
           f'Randomize Quests {on_off(args.randomize_quests)}; the host must match.')
     how_long = f'for {args.minutes:g} minutes' if stop_at else 'until Ctrl+C'
     print(f'Searching from {creation_time(first_seed)} {how_long} on {args.workers} workers; Ctrl+C stops and prints the best seeds.\n', flush=True)

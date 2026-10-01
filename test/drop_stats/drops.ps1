@@ -14,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 $Usage = @'
 Finds DevilutionX 1.5.5 multiplayer game seeds that drop the items you want.
 A game's seed is the second it was created. Found seeds are for games hosted in Diablo mode with
-MultiplayerFullQuests and Randomize Quests on, unless searched with the flags below; the host must match.
+Full quests in Multiplayer and Randomize Quests on, unless searched with the flags below; the host must match.
 
 Searches seeds from right now on, printing matching games as they are found:
   drops.ps1 search <minutes> <wishlist>
@@ -33,8 +33,8 @@ Wishlist options:
   Name:N                     a minimum for one affix's first shown number, e.g. --prefix Obsidian:39
   --difficulty 0|1|2         Normal, Nightmare, Hell (default: all three)
   --seeds 50                 how many of the best seeds to list (default 20)
-  --multiplayer-full-quests off   for games hosted with MultiplayerFullQuests off (default on)
-  --randomize-quests off          for games hosted with Randomize Quests off (default on)
+  --full-quests off          for games hosted with Full quests in Multiplayer off (default on)
+  --randomize-quests off     for games hosted with Randomize Quests off (default on)
 Names are not case-sensitive; quote names with spaces or apostrophes. More: drops.ps1 search --help
 
 Uses the current build's drop_stats_test.exe, copied to ~\drop-stats\search-bin (set DROPSTATS_ROOT to move it).
