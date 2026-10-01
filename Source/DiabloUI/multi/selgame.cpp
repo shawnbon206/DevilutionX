@@ -573,13 +573,7 @@ void selgame_Seed_Esc();
 void selgame_Seed_Init()
 {
 	selgame_Seed[0] = '\0';
-	// The same seed gives other levels when the quest settings differ, so say which ones are in effect.
-	std::string description(_("Game Seed\nThe dungeon levels and everything in them come from this number. Leave it empty for a normal game."));
-	if (!*sgOptions.Gameplay.multiplayerFullQuests)
-		description += _("\nFull quests are off: seeds found with full quests won't match.");
-	else if (!*sgOptions.Gameplay.randomizeQuests)
-		description += _("\nRandomize Quests is off: seeds found with it on won't match.");
-	CopyUtf8(selgame_Description, description, sizeof(selgame_Description));
+	CopyUtf8(selgame_Description, _("Game Seed\nThe dungeon levels and everything in them come from this number. Leave it empty for a normal game."), sizeof(selgame_Description));
 
 	selgame_FreeVectors();
 
