@@ -572,9 +572,8 @@ void selgame_Seed_Esc();
 
 void selgame_Seed_Init()
 {
-	// Suggest the seed the game would get anyway: the time the multiplayer menus were opened.
-	CopyUtf8(selgame_Seed, StrCat(m_game_data->dwSeed), sizeof(selgame_Seed));
-	CopyUtf8(selgame_Description, _("Game Seed\nThe dungeon levels and everything in them come from this number. Keep the suggested seed for a normal game."), sizeof(selgame_Description));
+	selgame_Seed[0] = '\0';
+	CopyUtf8(selgame_Description, _("Game Seed\nThe dungeon levels and everything in them come from this number. Leave it empty for a normal game."), sizeof(selgame_Description));
 
 	selgame_FreeVectors();
 
@@ -596,7 +595,7 @@ void selgame_Seed_Init()
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Enter Game Seed").data(), rect4, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
 
 	SDL_Rect rect5 = { (Sint16)(uiPosition.x + 305), (Sint16)(uiPosition.y + 314), 285, 33 };
-	vecSelGameDialog.push_back(std::make_unique<UiEdit>(_("Enter Game Seed"), selgame_Seed, sizeof(selgame_Seed) - 1, false, rect5, UiFlags::FontSize24 | UiFlags::ColorUiGold));
+	vecSelGameDialog.push_back(std::make_unique<UiEdit>(_("Enter Game Seed"), selgame_Seed, sizeof(selgame_Seed) - 1, true, rect5, UiFlags::FontSize24 | UiFlags::ColorUiGold));
 
 	SDL_Rect rect6 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 427), 140, 35 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("OK"), &UiFocusNavigationSelect, rect6, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
@@ -609,6 +608,11 @@ void selgame_Seed_Init()
 
 void selgame_Seed_Select(int /*value*/)
 {
+	// Empty keeps the seed InitGameInfo chose: the time the multiplayer menus were opened.
+	if (selgame_Seed[0] == '\0') {
+		CreateGameAfterSpeed();
+		return;
+	}
 	const std::optional<uint32_t> seed = ParseSeed(selgame_Seed);
 	if (!seed) {
 		selgame_Free();
