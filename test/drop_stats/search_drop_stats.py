@@ -1,12 +1,7 @@
-"""Simulates game seeds starting at the current second and prints the ones that drop the wanted items.
+"""Simulates game seeds from the current second on and prints the games that drop the items you want.
 
-Usually run through drops.ps1 search, which prepares the simulator. Directly:
-    python test/drop_stats/search_drop_stats.py --bin ~/drop-stats/search-bin --minutes 5 --type ring --prefix Gold --suffix Life
-
---minutes 0 searches until Ctrl+C. Ctrl+C always stops and still prints the summary.
+Run it through drops.ps1, which prepares the simulator; drops.ps1 --help shows this help.
 The workers send their items straight to this script, so a search can run for hours without using disk.
-
-A prefix or suffix can carry a minimum for the first number it shows, e.g. --prefix Obsidian:38 Gold:28.
 """
 
 import argparse
@@ -35,32 +30,70 @@ ITEM_HEADER = [
 ]
 
 
+HELP_DESCRIPTION = """\
+Searches game seeds from right now on and prints each game that drops an item on your wishlist,
+with a code to paste into the patched game's Enter Game Seed box. Runs until Ctrl+C unless
+--minutes is given; Ctrl+C prints a summary.
+"""
+
+HELP_EXAMPLES = """\
+examples:
+  drops.ps1 --type ring amulet --prefix Obsidian Gold "Dragon's" --suffix life "the zodiac" --min-roll 80
+  drops.ps1 --base Maul "Great Axe" --prefix "King's" --suffix haste --difficulty hell --minutes 30
+  drops.ps1 --unique "Harlequin Crest" --workers 10
+
+Names are not case-sensitive; quote names with spaces or apostrophes. "of " in suffixes is optional.
+"""
+
+
+class HelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Shows a list option as "--type NAME ..." instead of "--type TYPE [TYPE ...]"."""
+
+    def _format_args(self, action, default_metavar):
+        if action.nargs == '+':
+            return f'{self._metavar_formatter(action, default_metavar)(1)[0]} ...'
+        return super()._format_args(action, default_metavar)
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--bin', required=True, help='folder with drop_stats_test.exe and its DLLs')
-    parser.add_argument('--minutes', type=float, default=5, help='how long to search; 0 searches until Ctrl+C')
-    parser.add_argument('--workers', type=int, default=20, help='simulation processes; fewer leaves more CPU for playing (default 20)')
-    parser.add_argument('--start', type=int, help='first seed (default: the current second)')
-    parser.add_argument('--type', nargs='+', default=[], help='item types: ring amulet sword axe mace bow staff helm shield light_armor medium_armor heavy_armor')
-    parser.add_argument('--base', nargs='+', default=[], help='base items, e.g. Maul "Great Axe"')
-    parser.add_argument('--prefix', nargs='+', default=[], help='wanted prefixes; add :N for a minimum, e.g. Obsidian:38 means resist all at least 38')
-    parser.add_argument('--suffix', nargs='+', default=[], help='wanted suffixes; add :N for a minimum, e.g. life:28')
-    parser.add_argument('--unique', nargs='+', default=[], help='wanted unique items')
-    parser.add_argument('--either', action='store_true', help='prefix OR suffix on the lists instead of both')
-    parser.add_argument('--difficulty', nargs='+', default=[], help='normal, nightmare, hell, or 1, 2, 3 (default: all three)')
-    parser.add_argument('--min-roll', type=int, help='each wanted prefix and suffix must have rolled at least this far up its range, 0-100; 80 means the top fifth')
-    parser.add_argument('--full-quests', choices=['on', 'off', '1', '0'], default='on',
-                        help='the "Full quests in Multiplayer" setting the host will create the game with (default on)')
-    parser.add_argument('--randomize-quests', choices=['on', 'off', '1', '0'], default='on',
-                        help='the Randomize Quests setting the host will create the game with (default on)')
+    parser = argparse.ArgumentParser(prog='drops.ps1', usage='drops.ps1 <item requirements> [game settings] [search options]',
+                                     description=HELP_DESCRIPTION, epilog=HELP_EXAMPLES, add_help=False,
+                                     formatter_class=lambda prog: HelpFormatter(prog, max_help_position=30))
+    parser.add_argument('--bin', required=True, help=argparse.SUPPRESS)
+
+    wishlist = parser.add_argument_group('item requirements')
+    wishlist.add_argument('--type', nargs='+', default=[], metavar='TYPE',
+                          help='ring amulet sword axe mace bow staff helm shield light_armor medium_armor heavy_armor')
+    wishlist.add_argument('--base', nargs='+', default=[], metavar='NAME', help='base items, e.g. Maul "Great Axe"')
+    wishlist.add_argument('--prefix', nargs='+', default=[], metavar='NAME', help='the item\'s prefix must be one of these')
+    wishlist.add_argument('--suffix', nargs='+', default=[], metavar='NAME', help='the item\'s suffix must be one of these')
+    wishlist.add_argument('--either', action='store_true', help='with both lists, one matching affix is enough')
+    wishlist.add_argument('--unique', nargs='+', default=[], metavar='NAME', help='unique items, e.g. "Harlequin Crest"')
+    wishlist.add_argument('--min-roll', type=int, metavar='PERCENT',
+                          help='each wanted affix rolled at least this far up its range; 80 is the top fifth')
+    wishlist.description = 'A prefix or suffix can carry its own minimum for the first number it shows: Obsidian:38.'
+
+    games = parser.add_argument_group('game settings', 'The host has to create the game with these settings.')
+    games.add_argument('--difficulty', nargs='+', default=[], metavar='LEVEL', help='normal nightmare hell, or 1 2 3 (default: all three)')
+    games.add_argument('--full-quests', choices=['on', 'off', '1', '0'], default='on', metavar='on|off',
+                       help='Full quests in Multiplayer (default on)')
+    games.add_argument('--randomize-quests', choices=['on', 'off', '1', '0'], default='on', metavar='on|off',
+                       help='Randomize Quests (default on)')
+
+    running = parser.add_argument_group('search')
+    running.add_argument('--minutes', type=float, default=0, metavar='N', help='stop after this long (default: until Ctrl+C)')
+    running.add_argument('--workers', type=int, default=20, metavar='N', help='simulation processes; fewer leaves more CPU for playing (default 20)')
+    running.add_argument('--start', type=int, metavar='SEED', help='first seed (default: the current second)')
+    running.add_argument('--help', action='help', help='show this help')
+
     args = parser.parse_args()
     args.full_quests = args.full_quests in ('on', '1')
+    args.randomize_quests = args.randomize_quests in ('on', '1')
     difficulties = {'normal': 0, 'nightmare': 1, 'hell': 2, '1': 0, '2': 1, '3': 2}
     for name in args.difficulty:
         if name.lower() not in difficulties:
             parser.error(f'unknown difficulty "{name}": use normal, nightmare, hell, or 1, 2, 3')
     args.difficulty = {difficulties[name.lower()] for name in args.difficulty}
-    args.randomize_quests = args.randomize_quests in ('on', '1')
     if not (args.type or args.base or args.prefix or args.suffix or args.unique):
         parser.error('give at least one of --type, --base, --prefix, --suffix, --unique')
     if args.workers < 1:
