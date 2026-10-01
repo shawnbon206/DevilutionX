@@ -559,7 +559,7 @@ std::string TextCmdPos(const string_view parameter)
 		Marker = std::nullopt;
 		return std::string(_("Automap marker cleared."));
 	}
-	// Accept coordinates as written anywhere, e.g. "82 49", "82,49" or "(82, 49)".
+	// Coordinates are written "82,49"; spaces and "(82, 49)" as the search prints the tile work too.
 	std::string text(parameter);
 	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
 	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, currlevel, setlevel };
@@ -578,7 +578,7 @@ std::string TextCmdPos(const string_view parameter)
 	} else if (std::sscanf(text.c_str(), "%d %d %c", &first, &second, &extra) == 2 && first >= 0 && second >= 0 && first < MAXDUNX && second < MAXDUNY) {
 		marker.tile = { first, second };
 	} else {
-		return std::string(_("Use /pos, /pos <x> <y>, /pos m<number>, /pos o<number> or /pos off."));
+		return std::string(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number> or /pos off."));
 	}
 	Marker = marker;
 	return GetAutomapMarkerText();
@@ -590,7 +590,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/pos"), N_("Shows your tile, or marks a tile, monster or object on the automap."), N_("[<x> <y> | m<number> | o<number> | off]"), &TextCmdPos },
+	{ N_("/pos"), N_("Shows your tile, or marks a tile, monster or object on the automap."), N_("[<x>,<y> | m<number> | o<number> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
