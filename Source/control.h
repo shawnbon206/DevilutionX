@@ -121,6 +121,11 @@ void DrawManaFlaskLower(const Surface &out);
 void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue);
 
 /**
+ * @brief Draws the tile position readout and waypoint distance turned on with /pos.
+ */
+void DrawPositionReadout(const Surface &out);
+
+/**
  * @brief calls on the active player object to update HP/Mana percentage variables
  *
  * This is used to ensure that DrawFlask routines display an accurate representation of the players health/mana

@@ -528,12 +528,41 @@ std::string TextCmdLevelSeed(const string_view parameter)
 	    "Storybook: ", glSeedTbl[16]);
 }
 
+/** Set by /pos: show the player's tile, and with a waypoint also how far away it is on each axis. */
+bool ShowPositionReadout = false;
+std::optional<Point> PositionWaypoint;
+
+std::string TextCmdPos(const string_view parameter)
+{
+	if (parameter == "off" || (parameter.empty() && ShowPositionReadout)) {
+		ShowPositionReadout = false;
+		PositionWaypoint = std::nullopt;
+		return std::string(_("Position readout off."));
+	}
+	if (parameter.empty()) {
+		ShowPositionReadout = true;
+		return std::string(_("Position readout on."));
+	}
+	// Accept the coordinates as written anywhere, e.g. "82 49", "82,49" or "(82, 49)".
+	std::string coordinates(parameter);
+	std::replace_if(coordinates.begin(), coordinates.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
+	int x = 0;
+	int y = 0;
+	char extra = 0;
+	if (std::sscanf(coordinates.c_str(), "%d %d %c", &x, &y, &extra) != 2 || x < 0 || y < 0 || x >= MAXDUNX || y >= MAXDUNY)
+		return std::string(_("Use /pos, /pos <x> <y> or /pos off."));
+	ShowPositionReadout = true;
+	PositionWaypoint = Point { x, y };
+	return fmt::format(fmt::runtime(_("Waypoint set to {:d}, {:d}.")), x, y);
+}
+
 std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/help"), N_("Prints help overview or help for a specific command."), N_("[command]"), &TextCmdHelp },
 	{ N_("/arena"), N_("Enter a PvP Arena."), N_("<arena-number>"), &TextCmdArena },
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
+	{ N_("/pos"), N_("Shows your tile position; with coordinates, also how far that tile is."), N_("[<x> <y> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -650,6 +679,17 @@ bool IsLevelUpButtonVisible()
 }
 
 } // namespace
+
+void DrawPositionReadout(const Surface &out)
+{
+	if (!ShowPositionReadout || MyPlayer == nullptr)
+		return;
+	const Point tile = MyPlayer->position.tile;
+	std::string text = fmt::format("X {}  Y {}", tile.x, tile.y);
+	if (PositionWaypoint)
+		text += fmt::format("    to {}, {}:  dX {:+d}  dY {:+d}", PositionWaypoint->x, PositionWaypoint->y, PositionWaypoint->x - tile.x, PositionWaypoint->y - tile.y);
+	DrawString(out, text, Point { 8, 84 }, { UiFlags::ColorGold });
+}
 
 void CalculatePanelAreas()
 {
