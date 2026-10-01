@@ -638,6 +638,32 @@ void SearchAutomapItem(const Surface &out, const Displacement &myPlayerOffset, i
 }
 
 /**
+ * @brief Renders the /pos marker: a diamond with a cross through it, larger than the item marks.
+ */
+void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile)
+{
+	const int px = tile.x - 2 * AutomapOffset.deltaX - ViewPosition.x;
+	const int py = tile.y - 2 * AutomapOffset.deltaY - ViewPosition.y;
+
+	Point screen = {
+		(myPlayerOffset.deltaX * AutoMapScale / 100 / 2) + (px - py) * AmLine(16) + gnScreenWidth / 2,
+		(myPlayerOffset.deltaY * AutoMapScale / 100 / 2) + (px + py) * AmLine(8) + (gnScreenHeight - GetMainPanel().size.height) / 2
+	};
+	if (CanPanelsCoverView()) {
+		if (IsRightPanelOpen())
+			screen.x -= 160;
+		if (IsLeftPanelOpen())
+			screen.x += 160;
+	}
+	screen.y -= AmLine(8);
+
+	constexpr uint8_t MarkerColor = PAL8_RED;
+	DrawDiamond(out, screen, MarkerColor);
+	DrawHorizontalLine(out, { screen.x - AmLine(16), screen.y }, 2 * AmLine(16) + 1, MarkerColor);
+	DrawVerticalLine(out, { screen.x, screen.y - AmLine(16) }, 2 * AmLine(16) + 1, MarkerColor);
+}
+
+/**
  * @brief Renders an arrow on the automap, centered on and facing the direction of the player.
  */
 void DrawAutomapPlr(const Surface &out, const Displacement &myPlayerOffset, int playerId)
@@ -752,8 +778,11 @@ void DrawAutomapText(const Surface &out)
 		linePosition.y += 15;
 	}
 
+	const std::string marker = GetAutomapMarkerText();
 	if (setlevel) {
 		DrawString(out, _(QuestLevelNames[setlvlnum]), linePosition);
+		if (!marker.empty())
+			DrawString(out, marker, { linePosition.x, linePosition.y + 15 });
 		return;
 	}
 
@@ -790,6 +819,8 @@ void DrawAutomapText(const Surface &out)
 
 	std::string difficultyString = fmt::format(fmt::runtime(_(/* TRANSLATORS: {:s} means: Game Difficulty. */ "Difficulty: {:s}")), difficulty);
 	DrawString(out, difficultyString, linePosition);
+	if (!marker.empty())
+		DrawString(out, marker, { linePosition.x, linePosition.y + 15 });
 }
 
 std::unique_ptr<AutomapTile[]> LoadAutomapData(size_t &tileCount)
@@ -982,6 +1013,8 @@ void DrawAutomap(const Surface &out)
 	}
 
 	myPlayerOffset.deltaY -= TILE_HEIGHT / 2;
+	if (std::optional<Point> marked = GetAutomapMarkerTile())
+		DrawAutomapMarker(out, myPlayerOffset, *marked);
 	if (AutoMapShowItems)
 		SearchAutomapItem(out, myPlayerOffset, 8, [](Point position) { return dItem[position.x][position.y] != 0; });
 #ifdef _DEBUG

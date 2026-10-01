@@ -528,32 +528,60 @@ std::string TextCmdLevelSeed(const string_view parameter)
 	    "Storybook: ", glSeedTbl[16]);
 }
 
-/** Set by /pos: show the player's tile, and with a waypoint also how far away it is on each axis. */
-bool ShowPositionReadout = false;
-std::optional<Point> PositionWaypoint;
+/** What /pos marked on the automap: a fixed tile, or a monster or object it follows. Only shown on the level it was set on. */
+struct PositionMarker {
+	enum class Kind : uint8_t {
+		Tile,
+		Monster,
+		Object,
+	};
+	Kind kind;
+	int index;
+	Point tile;
+	uint8_t level;
+	bool isSetLevel;
+};
+
+std::optional<PositionMarker> Marker;
+
+bool IsMarkerOnThisLevel()
+{
+	return Marker && Marker->level == currlevel && Marker->isSetLevel == setlevel;
+}
 
 std::string TextCmdPos(const string_view parameter)
 {
-	if (parameter == "off" || (parameter.empty() && ShowPositionReadout)) {
-		ShowPositionReadout = false;
-		PositionWaypoint = std::nullopt;
-		return std::string(_("Position readout off."));
-	}
 	if (parameter.empty()) {
-		ShowPositionReadout = true;
-		return std::string(_("Position readout on."));
+		const Point here = MyPlayer->position.tile;
+		return fmt::format(fmt::runtime(_("You are at {:d}, {:d}.")), here.x, here.y);
 	}
-	// Accept the coordinates as written anywhere, e.g. "82 49", "82,49" or "(82, 49)".
-	std::string coordinates(parameter);
-	std::replace_if(coordinates.begin(), coordinates.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
-	int x = 0;
-	int y = 0;
+	if (parameter == "off") {
+		Marker = std::nullopt;
+		return std::string(_("Automap marker cleared."));
+	}
+	// Accept coordinates as written anywhere, e.g. "82 49", "82,49" or "(82, 49)".
+	std::string text(parameter);
+	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
+	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, currlevel, setlevel };
+	int first = 0;
+	int second = 0;
 	char extra = 0;
-	if (std::sscanf(coordinates.c_str(), "%d %d %c", &x, &y, &extra) != 2 || x < 0 || y < 0 || x >= MAXDUNX || y >= MAXDUNY)
-		return std::string(_("Use /pos, /pos <x> <y> or /pos off."));
-	ShowPositionReadout = true;
-	PositionWaypoint = Point { x, y };
-	return fmt::format(fmt::runtime(_("Waypoint set to {:d}, {:d}.")), x, y);
+	if ((text[0] == 'm' || text[0] == 'o') && std::sscanf(text.c_str() + 1, "%d %c", &first, &extra) == 1) {
+		const bool isMonster = text[0] == 'm';
+		const bool exists = isMonster
+		    ? std::find(ActiveMonsters, ActiveMonsters + ActiveMonsterCount, first) != ActiveMonsters + ActiveMonsterCount
+		    : std::find(ActiveObjects, ActiveObjects + ActiveObjectCount, first) != ActiveObjects + ActiveObjectCount;
+		if (!exists)
+			return fmt::format(fmt::runtime(_("There is no {:s}{:d} on this level.")), isMonster ? "m" : "o", first);
+		marker.kind = isMonster ? PositionMarker::Kind::Monster : PositionMarker::Kind::Object;
+		marker.index = first;
+	} else if (std::sscanf(text.c_str(), "%d %d %c", &first, &second, &extra) == 2 && first >= 0 && second >= 0 && first < MAXDUNX && second < MAXDUNY) {
+		marker.tile = { first, second };
+	} else {
+		return std::string(_("Use /pos, /pos <x> <y>, /pos m<number>, /pos o<number> or /pos off."));
+	}
+	Marker = marker;
+	return GetAutomapMarkerText();
 }
 
 std::vector<TextCmdItem> TextCmdList = {
@@ -562,7 +590,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/pos"), N_("Shows your tile position; with coordinates, also how far that tile is."), N_("[<x> <y> | off]"), &TextCmdPos },
+	{ N_("/pos"), N_("Shows your tile, or marks a tile, monster or object on the automap."), N_("[<x> <y> | m<number> | o<number> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -680,15 +708,44 @@ bool IsLevelUpButtonVisible()
 
 } // namespace
 
-void DrawPositionReadout(const Surface &out)
+std::optional<Point> GetAutomapMarkerTile()
 {
-	if (!ShowPositionReadout || MyPlayer == nullptr)
-		return;
-	const Point tile = MyPlayer->position.tile;
-	std::string text = fmt::format("X {}  Y {}", tile.x, tile.y);
-	if (PositionWaypoint)
-		text += fmt::format("    to {}, {}:  dX {:+d}  dY {:+d}", PositionWaypoint->x, PositionWaypoint->y, PositionWaypoint->x - tile.x, PositionWaypoint->y - tile.y);
-	DrawString(out, text, Point { 8, 84 }, { UiFlags::ColorGold });
+	if (!IsMarkerOnThisLevel())
+		return std::nullopt;
+	switch (Marker->kind) {
+	case PositionMarker::Kind::Monster: {
+		const Monster &monster = Monsters[Marker->index];
+		if (monster.hitPoints <= 0 || monster.isInvalid)
+			return std::nullopt;
+		return monster.position.tile;
+	}
+	case PositionMarker::Kind::Object:
+		return Objects[Marker->index].position;
+	default:
+		return Marker->tile;
+	}
+}
+
+std::string GetAutomapMarkerText()
+{
+	if (!IsMarkerOnThisLevel())
+		return "";
+	switch (Marker->kind) {
+	case PositionMarker::Kind::Monster: {
+		const Monster &monster = Monsters[Marker->index];
+		if (monster.hitPoints <= 0 || monster.isInvalid)
+			return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d}) is dead")), monster.name(), Marker->index);
+		return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d})")), monster.name(), Marker->index);
+	}
+	case PositionMarker::Kind::Object: {
+		const Object &object = Objects[Marker->index];
+		if (object._oSelFlag == 0)
+			return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}, already opened")), Marker->index, object.position.x, object.position.y);
+		return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}")), Marker->index, object.position.x, object.position.y);
+	}
+	default:
+		return fmt::format(fmt::runtime(_("Marked: {:d}, {:d}")), Marker->tile.x, Marker->tile.y);
+	}
 }
 
 void CalculatePanelAreas()

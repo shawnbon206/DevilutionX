@@ -1719,7 +1719,6 @@ void DrawAndBlit()
 	DrawCursor(out);
 
 	DrawFPS(out);
-	DrawPositionReadout(out);
 
 	DrawMain(out, hgt, drawInfoBox, drawHealth, drawMana, drawBelt, drawControlButtons);
 

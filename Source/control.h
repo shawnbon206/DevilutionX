@@ -121,9 +121,14 @@ void DrawManaFlaskLower(const Surface &out);
 void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue);
 
 /**
- * @brief Draws the tile position readout and waypoint distance turned on with /pos.
+ * @brief The tile marked with /pos on this level: a fixed tile, or where the marked monster or object is now.
  */
-void DrawPositionReadout(const Surface &out);
+std::optional<Point> GetAutomapMarkerTile();
+
+/**
+ * @brief A line describing what /pos marked on this level, or empty.
+ */
+std::string GetAutomapMarkerText();
 
 /**
  * @brief calls on the active player object to update HP/Mana percentage variables
