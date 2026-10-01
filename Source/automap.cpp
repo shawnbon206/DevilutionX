@@ -778,11 +778,8 @@ void DrawAutomapText(const Surface &out)
 		linePosition.y += 15;
 	}
 
-	const std::string marker = GetAutomapMarkerText();
 	if (setlevel) {
 		DrawString(out, _(QuestLevelNames[setlvlnum]), linePosition);
-		if (!marker.empty())
-			DrawString(out, marker, { linePosition.x, linePosition.y + 15 });
 		return;
 	}
 
@@ -819,8 +816,6 @@ void DrawAutomapText(const Surface &out)
 
 	std::string difficultyString = fmt::format(fmt::runtime(_(/* TRANSLATORS: {:s} means: Game Difficulty. */ "Difficulty: {:s}")), difficulty);
 	DrawString(out, difficultyString, linePosition);
-	if (!marker.empty())
-		DrawString(out, marker, { linePosition.x, linePosition.y + 15 });
 }
 
 std::unique_ptr<AutomapTile[]> LoadAutomapData(size_t &tileCount)
