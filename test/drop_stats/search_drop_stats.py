@@ -197,7 +197,7 @@ def mark_command(item):
     """The patched game's /pos command that marks the item's source on the automap. Monsters and objects keep
     the numbers they get when the level is generated, so the game can follow a monster that moves."""
     if item['source_index'] == '-1':
-        return f"/pos {item['source_x']} {item['source_y']}"
+        return f"/pos {item['source_x']},{item['source_y']}"
     return f"/pos {'m' if item['source_kind'] in ('monster', 'unique_monster') else 'o'}{item['source_index']}"
 
 
