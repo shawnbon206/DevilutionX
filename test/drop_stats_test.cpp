@@ -677,30 +677,79 @@ std::array<std::string, 2> PowerNumbers(string_view text)
 
 // Where a rolled affix value sits in the affix's range: 0 is the lowest possible roll, 100 the highest.
 // Affixes with a single possible value count as 100. Nothing when the item doesn't fit this entry.
+// Which shown number SaveItemPower rolled for this power: 0 or 1, or nullopt when the power doesn't roll a
+// value the item shows. Fire and lightning damage, arrows, life and mana stealing, attack speed and the like
+// copy fixed values from their table entries, and armor penetration rolls a value that is never shown.
+std::optional<int> RolledNumberIndex(item_effect_type power)
+{
+	switch (power) {
+	case IPL_TOHIT_DAMP:
+	case IPL_TOHIT_DAMP_CURSE:
+		// "to hit: +x%, +y% damage": the to-hit follows from the table, the damage is rolled.
+		return 1;
+	case IPL_TOHIT:
+	case IPL_TOHIT_CURSE:
+	case IPL_DAMP:
+	case IPL_DAMP_CURSE:
+	case IPL_ACP:
+	case IPL_ACP_CURSE:
+	case IPL_SETAC:
+	case IPL_AC_CURSE:
+	case IPL_FIRERES:
+	case IPL_LIGHTRES:
+	case IPL_MAGICRES:
+	case IPL_ALLRES:
+	case IPL_SPLLVLADD:
+	case IPL_STR:
+	case IPL_STR_CURSE:
+	case IPL_MAG:
+	case IPL_MAG_CURSE:
+	case IPL_DEX:
+	case IPL_DEX_CURSE:
+	case IPL_VIT:
+	case IPL_VIT_CURSE:
+	case IPL_ATTRIBS:
+	case IPL_ATTRIBS_CURSE:
+	case IPL_GETHIT:
+	case IPL_GETHIT_CURSE:
+	case IPL_LIFE:
+	case IPL_LIFE_CURSE:
+	case IPL_MANA:
+	case IPL_MANA_CURSE:
+	case IPL_DAMMOD:
+		return 0;
+	default:
+		return std::nullopt;
+	}
+}
+
+// Where a rolled affix value sits in the affix's range: 0 is the lowest possible roll, 100 the highest.
+// Affixes without a roll the item shows count as 100, so --min-roll never rules them out. Nothing when
+// the item doesn't fit this table entry.
 std::optional<int> RollPercent(const PLStruct &affix, const Item &item, const std::array<std::string, 2> &numbers)
 {
 	const int low = std::min(std::abs(affix.power.param1), std::abs(affix.power.param2));
 	const int high = std::max(std::abs(affix.power.param1), std::abs(affix.power.param2));
-	if (low == high)
-		return 100;
-	if (affix.power.type == IPL_DUR) {
-		// The durability bonus isn't shown; SaveItemPower adds r% of the base item's durability.
+	if (affix.power.type == IPL_DUR || affix.power.type == IPL_DUR_CURSE) {
+		if (low == high)
+			return 100;
+		// The durability change isn't shown; SaveItemPower changes it by r% of the base item's durability.
 		const int base = AllItemsList[item.IDidx].iDurability;
-		if (base == 0)
-			return std::nullopt;
-		const int rolled = (item._iMaxDur - base) * 100 / base;
+		if (base == 0 || item._iMaxDur == DUR_INDESTRUCTIBLE)
+			return 100;
+		const int rolled = std::abs(item._iMaxDur - base) * 100 / base;
 		return std::clamp((rolled - low) * 100 / (high - low), 0, 100);
 	}
-	// The shown number that falls inside the range is the rolled one; King's, for example, shows to-hit
-	// first and then the rolled damage.
-	for (const std::string &number : numbers) {
-		if (number.empty())
-			continue;
-		const int value = std::abs(std::stoi(number));
-		if (value >= low && value <= high)
-			return (value - low) * 100 / (high - low);
-	}
-	return std::nullopt;
+	const std::optional<int> index = RolledNumberIndex(affix.power.type);
+	if (!index || low == high)
+		return 100;
+	const std::string &number = numbers[*index];
+	if (number.empty())
+		return std::nullopt;
+	const int value = std::abs(std::stoi(number));
+	if (value < low || value > high)
+		return std::nullopt;
+	return (value - low) * 100 / (high - low);
 }
 
 struct AffixRoll {
@@ -905,6 +954,44 @@ TEST_F(DropStats, DumpNames)
 	for (int j = IDI_GOLD; j <= IDI_LAST; j++)
 		names << "base," << CsvField(AllItemsList[j].iName) << "\n";
 	ASSERT_TRUE(names) << "could not write " << path;
+}
+
+// --min-roll has to be reachable for every affix: forcing each table entry's lowest and highest roll must
+// read 0 and 100, and an affix without a shown roll must read 100 either way.
+TEST_F(DropStats, AffixRollsSpanTheirRange)
+{
+	StartMultiplayerGame(1, DIFF_NORMAL);
+	_item_indexes weapon = IDI_NONE;
+	for (int i = IDI_GOLD; i <= IDI_LAST && weapon == IDI_NONE; i++) {
+		if (AllItemsList[i].itype == ItemType::Sword && AllItemsList[i].iDurability > 0)
+			weapon = static_cast<_item_indexes>(i);
+	}
+	ASSERT_NE(weapon, IDI_NONE);
+	int checked = 0;
+	for (const PLStruct *table : { ItemPrefixes, ItemSuffixes }) {
+		for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
+			const PLStruct &affix = table[j];
+			const bool rolls = affix.power.param1 != affix.power.param2
+			    && (RolledNumberIndex(affix.power.type) || affix.power.type == IPL_DUR || affix.power.type == IPL_DUR_CURSE);
+			for (const int value : { affix.power.param1, affix.power.param2 }) {
+				// Let the game roll until it rolls this value, so every power is applied exactly as on a real drop.
+				Item item {};
+				for (uint32_t seed = 0; seed < 100000; seed++) {
+					item = {};
+					InitializeItem(item, weapon);
+					ItemPower power = affix.power;
+					SetRndSeed(seed);
+					if (SaveItemPower(*MyPlayer, item, power) == value || !rolls)
+						break;
+				}
+				const std::string shown(PrintItemPower(affix.power.type, item).str());
+				const bool isHighest = std::abs(value) == std::max(std::abs(affix.power.param1), std::abs(affix.power.param2));
+				EXPECT_EQ(RollPercent(affix, item, PowerNumbers(shown)), rolls && !isHighest ? 0 : 100) << affix.PLName << " rolled " << value << ": " << shown;
+				checked++;
+			}
+		}
+	}
+	EXPECT_GT(checked, 200);
 }
 
 // Prints each step for one game seed, to find where a seed that stalls a worker gets stuck.

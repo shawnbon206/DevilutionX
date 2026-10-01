@@ -514,6 +514,8 @@ int AllocateItem();
 uint8_t PlaceItemInWorld(Item &&item, WorldTilePosition position);
 Point GetSuperItemLoc(Point position);
 void GetItemAttrs(Item &item, _item_indexes itemData, int lvl);
+/** Applies one item power with a value rolled from its parameters and returns that value. */
+int SaveItemPower(const Player &player, Item &item, ItemPower &power);
 void SetupItem(Item &item);
 Item *SpawnUnique(_unique_items uid, Point position, std::optional<int> level = std::nullopt, bool sendmsg = true, bool exactPosition = false);
 void SpawnItem(Monster &monster, Point position, bool sendmsg, bool spawn = false);

@@ -716,6 +716,8 @@ int CalculateToHitBonus(int level)
 	}
 }
 
+} // namespace
+
 int SaveItemPower(const Player &player, Item &item, ItemPower &power)
 {
 	if (!gbIsHellfire) {
@@ -1058,6 +1060,8 @@ int SaveItemPower(const Player &player, Item &item, ItemPower &power)
 
 	return r;
 }
+
+namespace {
 
 bool StringInPanel(const char *str)
 {
