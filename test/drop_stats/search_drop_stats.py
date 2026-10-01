@@ -228,6 +228,7 @@ def print_drop(drop):
     warning = f"   (the game hangs entering {drop['hung']}, stay out of it)" if drop['hung'] else ''
     print(f"{item['name']}   {powers}" if powers else item['name'])
     print(f"  {seed_code(item)}   {where}, {item['source_name']} at {item['source_x']},{item['source_y']}   {difficulties}   {short_time(int(item['game_seed']))}{warning}")
+    print()
 
 
 def main():
@@ -240,10 +241,13 @@ def main():
     signal.signal(signal.SIGBREAK, signal.default_int_handler)
 
     on_off = lambda value: 'ON' if value else 'OFF'
-    print(f'For games hosted in Diablo mode with Full quests in Multiplayer {on_off(args.full_quests)} and '
-          f'Randomize Quests {on_off(args.randomize_quests)}; the host must match.')
-    how_long = f'for {args.minutes:g} minutes' if stop_at else 'until Ctrl+C'
-    print(f'Searching from {creation_time(first_seed)} {how_long} on {args.workers} workers; Ctrl+C stops and prints the best seeds.\n', flush=True)
+    how_long = f'{args.minutes:g} minutes' if stop_at else 'until Ctrl+C'
+    print('Search   (host the game with these settings)')
+    print(f'  Full quests in Multiplayer   {on_off(args.full_quests)}')
+    print(f'  Randomize Quests             {on_off(args.randomize_quests)}')
+    print(f'  Games created from           {short_time(first_seed)}')
+    print(f'  Running                      {how_long} on {args.workers} workers   (Ctrl+C stops early and shows the best seeds)')
+    print(flush=True)
     lines = queue.Queue()
     hung = []
     workers = [Worker(i, args, first_seed, stop_at, lines, hung) for i in range(args.workers)]
@@ -292,7 +296,7 @@ def main():
             elif worker is not None and line.startswith(f'worker {worker.index} finished'):
                 worker.finished = True
             if time.time() - last_progress >= 60:
-                print(f'... {seeds_done:,} seeds searched, up to games created {creation_time(last_seed)}; {len({k[0] for k in hits}):,} with a match', flush=True)
+                print(f'  ... {seeds_done:,} seeds searched, up to {short_time(last_seed)}, {len(drops_by_seed):,} with a match\n', flush=True)
                 last_progress = time.time()
     except KeyboardInterrupt:
         print('\nStopping...')
@@ -301,15 +305,15 @@ def main():
             if worker.process.poll() is None:
                 worker.process.kill()
 
-    print(f'\nSearched {seeds_done:,} seeds, games created {creation_time(first_seed)} to {creation_time(last_seed)}.')
+    print(f'\nSearched {seeds_done:,} seeds, games created {short_time(first_seed)} to {short_time(last_seed)}')
     for difficulty in range(3):
         if args.difficulty and difficulty not in args.difficulty:
             continue
         matching = sum(1 for k in hits if k[1] == difficulty)
         odds = f'1 in {searched[difficulty] / matching:,.0f}' if matching else 'none'
-        print(f'  {DIFFICULTIES[difficulty]:<10} {matching:,} of {searched[difficulty]:,} games have a match ({odds})')
+        print(f'  {DIFFICULTIES[difficulty]:<11}{matching:>8,} of {searched[difficulty]:,} games   {odds}')
     if drops_by_seed:
-        print(f'\nBest seeds, most matching drops first (up to {args.seeds}):')
+        print(f'\nBest seeds, most matching drops first (up to {args.seeds})\n')
         best = sorted(drops_by_seed, key=lambda seed: (-len(drops_by_seed[seed]), seed))[:args.seeds]
         for seed in best:
             for drop in drops_by_seed[seed].values():
