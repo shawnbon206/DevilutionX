@@ -355,6 +355,8 @@ int premiumLvlAddHellfire[] = {
 	// clang-format on
 };
 
+} // namespace
+
 bool IsPrefixValidForItemType(int i, AffixItemType flgs, bool hellfireItem)
 {
 	AffixItemType itemTypes = ItemPrefixes[i].PLIType;
@@ -389,6 +391,8 @@ bool IsSuffixValidForItemType(int i, AffixItemType flgs, bool hellfireItem)
 
 	return HasAnyOf(flgs, itemTypes);
 }
+
+namespace {
 
 int ItemsGetCurrlevel()
 {
