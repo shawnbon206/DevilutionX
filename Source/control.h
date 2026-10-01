@@ -121,6 +121,12 @@ void DrawManaFlaskLower(const Surface &out);
 void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue);
 
 /**
+ * @brief Marks the target of a seed search code ("16:m59", "s5:m40" or "9:68,76") for when that level is reached.
+ * @return false if the text isn't a valid level and target
+ */
+bool SetAutomapMarkerFromCode(string_view levelAndTarget);
+
+/**
  * @brief The tile marked with /pos on this level: a fixed tile, or where the marked monster or object is now.
  */
 std::optional<Point> GetAutomapMarkerTile();

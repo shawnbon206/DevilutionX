@@ -540,7 +540,8 @@ void selgame_Speed_Esc()
 
 namespace {
 
-char selgame_Seed[11];
+// A seed, or a seed search code like "1790847150-16:m59" (seed, level and target to mark on the automap).
+char selgame_Seed[40];
 
 void CreateGameAfterSpeed()
 {
@@ -573,7 +574,7 @@ void selgame_Seed_Esc();
 void selgame_Seed_Init()
 {
 	selgame_Seed[0] = '\0';
-	CopyUtf8(selgame_Description, _("Game Seed\nThe dungeon levels and everything in them come from this number. Leave it empty for a normal game."), sizeof(selgame_Description));
+	CopyUtf8(selgame_Description, _("Game Seed\nThe dungeon levels and everything in them come from this number. Leave it empty for a normal game. A code from the seed search also marks where its item drops on the automap."), sizeof(selgame_Description));
 
 	selgame_FreeVectors();
 
@@ -613,10 +614,12 @@ void selgame_Seed_Select(int /*value*/)
 		CreateGameAfterSpeed();
 		return;
 	}
-	const std::optional<uint32_t> seed = ParseSeed(selgame_Seed);
-	if (!seed) {
+	const string_view text = selgame_Seed;
+	const size_t dash = text.find('-');
+	const std::optional<uint32_t> seed = ParseSeed(text.substr(0, dash));
+	if (!seed || (dash != string_view::npos && !SetAutomapMarkerFromCode(text.substr(dash + 1)))) {
 		selgame_Free();
-		UiSelOkDialog(_("Multi Player Game").data(), _("The game seed must be a whole number from 0 to 4294967295.").data(), false);
+		UiSelOkDialog(_("Multi Player Game").data(), _("Enter a game seed (a whole number from 0 to 4294967295) or a code from the seed search.").data(), false);
 		selgame_Init();
 		selgame_Seed_Init();
 		return;

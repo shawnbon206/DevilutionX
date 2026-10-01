@@ -549,6 +549,40 @@ bool IsMarkerOnThisLevel()
 	return Marker && Marker->level == currlevel && Marker->isSetLevel == setlevel;
 }
 
+bool IsActiveMonster(int index)
+{
+	return std::find(ActiveMonsters, ActiveMonsters + ActiveMonsterCount, index) != ActiveMonsters + ActiveMonsterCount;
+}
+
+bool IsActiveObject(int index)
+{
+	return std::find(ActiveObjects, ActiveObjects + ActiveObjectCount, index) != ActiveObjects + ActiveObjectCount;
+}
+
+/** Reads "m59", "o62" or "68,76" (spaces and "(68, 76)" work too) as a marker on the given level. */
+std::optional<PositionMarker> ParseMarkerTarget(string_view target, uint8_t level, bool isSetLevel)
+{
+	std::string text(target);
+	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
+	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, level, isSetLevel };
+	int first = 0;
+	int second = 0;
+	char extra = 0;
+	if (!text.empty() && (text[0] == 'm' || text[0] == 'o') && std::sscanf(text.c_str() + 1, "%d %c", &first, &extra) == 1) {
+		const bool isMonster = text[0] == 'm';
+		if (first < 0 || first >= (isMonster ? static_cast<int>(MaxMonsters) : MAXOBJECTS))
+			return std::nullopt;
+		marker.kind = isMonster ? PositionMarker::Kind::Monster : PositionMarker::Kind::Object;
+		marker.index = first;
+		return marker;
+	}
+	if (std::sscanf(text.c_str(), "%d %d %c", &first, &second, &extra) == 2 && first >= 0 && second >= 0 && first < MAXDUNX && second < MAXDUNY) {
+		marker.tile = { first, second };
+		return marker;
+	}
+	return std::nullopt;
+}
+
 std::string TextCmdPos(const string_view parameter)
 {
 	if (parameter.empty()) {
@@ -559,27 +593,13 @@ std::string TextCmdPos(const string_view parameter)
 		Marker = std::nullopt;
 		return std::string(_("Automap marker cleared."));
 	}
-	// Coordinates are written "82,49"; spaces and "(82, 49)" as the search prints the tile work too.
-	std::string text(parameter);
-	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
-	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, currlevel, setlevel };
-	int first = 0;
-	int second = 0;
-	char extra = 0;
-	if ((text[0] == 'm' || text[0] == 'o') && std::sscanf(text.c_str() + 1, "%d %c", &first, &extra) == 1) {
-		const bool isMonster = text[0] == 'm';
-		const bool exists = isMonster
-		    ? std::find(ActiveMonsters, ActiveMonsters + ActiveMonsterCount, first) != ActiveMonsters + ActiveMonsterCount
-		    : std::find(ActiveObjects, ActiveObjects + ActiveObjectCount, first) != ActiveObjects + ActiveObjectCount;
-		if (!exists)
-			return fmt::format(fmt::runtime(_("There is no {:s}{:d} on this level.")), isMonster ? "m" : "o", first);
-		marker.kind = isMonster ? PositionMarker::Kind::Monster : PositionMarker::Kind::Object;
-		marker.index = first;
-	} else if (std::sscanf(text.c_str(), "%d %d %c", &first, &second, &extra) == 2 && first >= 0 && second >= 0 && first < MAXDUNX && second < MAXDUNY) {
-		marker.tile = { first, second };
-	} else {
+	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
+	if (!marker)
 		return std::string(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number> or /pos off."));
-	}
+	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index))
+		return fmt::format(fmt::runtime(_("There is no m{:d} on this level.")), marker->index);
+	if (marker->kind == PositionMarker::Kind::Object && !IsActiveObject(marker->index))
+		return fmt::format(fmt::runtime(_("There is no o{:d} on this level.")), marker->index);
 	Marker = marker;
 	return GetAutomapMarkerText();
 }
@@ -708,6 +728,31 @@ bool IsLevelUpButtonVisible()
 
 } // namespace
 
+bool SetAutomapMarkerFromCode(string_view levelAndTarget)
+{
+	// "16:m59" for dungeon level 16, "s5:m40" for set level 5 (Lazarus' Lair).
+	const size_t colon = levelAndTarget.find(':');
+	if (colon == string_view::npos || colon == 0)
+		return false;
+	string_view levelText = levelAndTarget.substr(0, colon);
+	const bool isSetLevel = levelText[0] == 's';
+	if (isSetLevel)
+		levelText.remove_prefix(1);
+	int level = 0;
+	for (char c : levelText) {
+		if (c < '0' || c > '9' || level > 100)
+			return false;
+		level = level * 10 + (c - '0');
+	}
+	if (levelText.empty() || level < 1 || level >= NUMLEVELS)
+		return false;
+	const std::optional<PositionMarker> marker = ParseMarkerTarget(levelAndTarget.substr(colon + 1), static_cast<uint8_t>(level), isSetLevel);
+	if (!marker)
+		return false;
+	Marker = marker;
+	return true;
+}
+
 std::optional<Point> GetAutomapMarkerTile()
 {
 	if (!IsMarkerOnThisLevel())
@@ -715,11 +760,13 @@ std::optional<Point> GetAutomapMarkerTile()
 	switch (Marker->kind) {
 	case PositionMarker::Kind::Monster: {
 		const Monster &monster = Monsters[Marker->index];
-		if (monster.hitPoints <= 0 || monster.isInvalid)
+		if (!IsActiveMonster(Marker->index) || monster.hitPoints <= 0 || monster.isInvalid)
 			return std::nullopt;
 		return monster.position.tile;
 	}
 	case PositionMarker::Kind::Object:
+		if (!IsActiveObject(Marker->index))
+			return std::nullopt;
 		return Objects[Marker->index].position;
 	default:
 		return Marker->tile;
@@ -733,12 +780,16 @@ std::string GetAutomapMarkerText()
 	switch (Marker->kind) {
 	case PositionMarker::Kind::Monster: {
 		const Monster &monster = Monsters[Marker->index];
+		if (!IsActiveMonster(Marker->index))
+			return fmt::format(fmt::runtime(_("Marked: m{:d} is not on this level")), Marker->index);
 		if (monster.hitPoints <= 0 || monster.isInvalid)
 			return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d}) is dead")), monster.name(), Marker->index);
 		return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d})")), monster.name(), Marker->index);
 	}
 	case PositionMarker::Kind::Object: {
 		const Object &object = Objects[Marker->index];
+		if (!IsActiveObject(Marker->index))
+			return fmt::format(fmt::runtime(_("Marked: o{:d} is not on this level")), Marker->index);
 		if (object._oSelFlag == 0)
 			return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}, already opened")), Marker->index, object.position.x, object.position.y);
 		return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}")), Marker->index, object.position.x, object.position.y);
