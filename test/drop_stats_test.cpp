@@ -40,19 +40,12 @@
 namespace devilution {
 namespace {
 
-// Must match "Randomize Quests" in the game creator's diablo.ini, given as DROPSTATS_RANDOMIZE_QUESTS=0 or 1
-// (default 1); joiners take the creator's quest states via DeltaSyncJunk.
+// Must match "Randomize Quests" in the game creator's diablo.ini: on unless DROPSTATS_RANDOMIZE_QUESTS=0.
+// Joiners take the creator's quest states via DeltaSyncJunk.
 bool RandomizeQuests()
 {
 	const char *value = std::getenv("DROPSTATS_RANDOMIZE_QUESTS");
 	return value == nullptr || string_view(value) != "0";
-}
-
-// "Theo Quest" and "Cow Quest" from the creator's diablo.ini, as DROPSTATS_THEO_QUEST / DROPSTATS_COW_QUEST.
-uint8_t QuestSetting(const char *name)
-{
-	const char *value = std::getenv(name);
-	return value != nullptr && string_view(value) == "1" ? 1 : 0;
 }
 
 std::string MpqDir()
@@ -91,8 +84,8 @@ void StartMultiplayerGame(uint32_t gameSeed, _difficulty difficulty)
 	sgGameInitInfo.nDifficulty = difficulty;
 	sgGameInitInfo.fullQuests = 1;
 	sgOptions.Gameplay.randomizeQuests.SetValue(RandomizeQuests());
-	sgGameInitInfo.bTheoQuest = QuestSetting("DROPSTATS_THEO_QUEST");
-	sgGameInitInfo.bCowQuest = QuestSetting("DROPSTATS_COW_QUEST");
+	sgGameInitInfo.bTheoQuest = 0;
+	sgGameInitInfo.bCowQuest = 0;
 
 	// Same order as NetInit then StartGame.
 	SetRndSeed(gameSeed);

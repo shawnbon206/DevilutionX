@@ -48,6 +48,7 @@ def parse_args():
     parser.add_argument('--either', action='store_true', help='prefix OR suffix on the lists instead of both')
     parser.add_argument('--difficulty', type=int, choices=[0, 1, 2], help='0 Normal, 1 Nightmare, 2 Hell (default: all)')
     parser.add_argument('--min-roll', type=int, help='each wanted prefix and suffix must have rolled at least this far up its range, 0-100; 80 means the top fifth')
+    parser.add_argument('--all-quests', action='store_true', help='simulate games hosted with Randomize Quests off, so every quest is present')
     parser.add_argument('--seeds', type=int, default=20, help='how many of the best seeds to list at the end')
     args = parser.parse_args()
     if not (args.type or args.base or args.prefix or args.suffix or args.unique):
@@ -150,7 +151,7 @@ class Worker:
         self.start()
 
     def start(self):
-        env = dict(os.environ, DROPSTATS_WORKER=str(self.index),
+        env = dict(os.environ, DROPSTATS_WORKER=str(self.index), DROPSTATS_RANDOMIZE_QUESTS='0' if self.args.all_quests else '1',
                    DROPSTATS_FIRST_SEED=str(self.next_seed), DROPSTATS_SEED_STEP=str(self.args.workers),
                    DROPSTATS_SKIP_LEVELS=';'.join(f'{seed}:{dlvl}:{set_level}' for seed, dlvl, set_level in self.hung if seed == self.next_seed))
         if self.stop_at is not None:
@@ -203,6 +204,8 @@ def main():
     # Ctrl+Break stops the search the same way Ctrl+C does.
     signal.signal(signal.SIGBREAK, signal.default_int_handler)
 
+    quests = 'Randomize Quests OFF' if args.all_quests else 'Randomize Quests ON'
+    print(f'For games hosted in Diablo mode with full quests and {quests}; the host must match.')
     how_long = f'for {args.minutes:g} minutes' if stop_at else 'until Ctrl+C'
     print(f'Searching from {creation_time(first_seed)} {how_long} on {args.workers} workers; Ctrl+C stops and prints the best seeds.\n', flush=True)
     lines = queue.Queue()
