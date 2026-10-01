@@ -40,8 +40,20 @@
 namespace devilution {
 namespace {
 
-// Must match "Randomize Quests" in the game creator's diablo.ini; joiners take the creator's quest states via DeltaSyncJunk.
-constexpr bool RandomizeQuests = true;
+// Must match "Randomize Quests" in the game creator's diablo.ini, given as DROPSTATS_RANDOMIZE_QUESTS=0 or 1
+// (default 1); joiners take the creator's quest states via DeltaSyncJunk.
+bool RandomizeQuests()
+{
+	const char *value = std::getenv("DROPSTATS_RANDOMIZE_QUESTS");
+	return value == nullptr || string_view(value) != "0";
+}
+
+// "Theo Quest" and "Cow Quest" from the creator's diablo.ini, as DROPSTATS_THEO_QUEST / DROPSTATS_COW_QUEST.
+uint8_t QuestSetting(const char *name)
+{
+	const char *value = std::getenv(name);
+	return value != nullptr && string_view(value) == "1" ? 1 : 0;
+}
 
 std::string MpqDir()
 {
@@ -78,9 +90,9 @@ void StartMultiplayerGame(uint32_t gameSeed, _difficulty difficulty)
 	sgGameInitInfo.dwSeed = gameSeed;
 	sgGameInitInfo.nDifficulty = difficulty;
 	sgGameInitInfo.fullQuests = 1;
-	sgOptions.Gameplay.randomizeQuests.SetValue(RandomizeQuests);
-	sgGameInitInfo.bTheoQuest = 0;
-	sgGameInitInfo.bCowQuest = 0;
+	sgOptions.Gameplay.randomizeQuests.SetValue(RandomizeQuests());
+	sgGameInitInfo.bTheoQuest = QuestSetting("DROPSTATS_THEO_QUEST");
+	sgGameInitInfo.bCowQuest = QuestSetting("DROPSTATS_COW_QUEST");
 
 	// Same order as NetInit then StartGame.
 	SetRndSeed(gameSeed);
@@ -990,6 +1002,9 @@ TEST_F(DropStats, SearchWorker)
 		}
 		std::fwrite(rows.data(), 1, rows.size(), stdout);
 		std::fflush(stdout);
+		// The search reading the pipe is gone (closed window, killed process), so stop instead of running on unseen.
+		if (std::ferror(stdout))
+			break;
 	}
 	searching = false;
 	watchdog.join();
