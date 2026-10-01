@@ -74,7 +74,7 @@ def parse_args():
     wishlist.description = 'A prefix or suffix can carry its own minimum for the first number it shows: Obsidian:38.'
 
     games = parser.add_argument_group('game settings', 'The host has to create the game with these settings.')
-    games.add_argument('--difficulty', nargs='+', default=[], metavar='LEVEL', help='normal nightmare hell, or 1 2 3 (default: all three)')
+    games.add_argument('--difficulty', nargs='+', default=[], metavar='LEVEL', help='normal nightmare hell, or 1 2 3 (default: all)')
     games.add_argument('--full-quests', choices=['on', 'off', '1', '0'], default='on', metavar='on|off',
                        help='Full quests in Multiplayer (default on)')
     games.add_argument('--randomize-quests', choices=['on', 'off', '1', '0'], default='on', metavar='on|off',
