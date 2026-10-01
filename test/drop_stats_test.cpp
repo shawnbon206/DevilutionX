@@ -26,6 +26,7 @@
 #include "levels/trigs.h"
 #include "lighting.h"
 #include "loadsave.h"
+#include "missiles.h"
 #include "monster.h"
 #include "multi.h"
 #include "objects.h"
@@ -484,6 +485,13 @@ std::vector<Item> DryRun(Spawn &&spawn)
 	return items;
 }
 
+// Each player's golem waits off the map until it is cast and then never drops loot, so neither the parked
+// slots (no golem flag yet) nor summoned golems are drop sources.
+bool IsGolemSlot(const Monster &monster)
+{
+	return monster.isPlayerMinion() || monster.position.tile == GolemHoldingCell;
+}
+
 std::vector<Drop> DryRunLevelDrops()
 {
 	std::vector<Drop> drops;
@@ -491,7 +499,7 @@ std::vector<Drop> DryRunLevelDrops()
 		drops.push_back({ SourceKind::Other, FloorSource, "Floor", Items[ActiveItems[k]], Items[ActiveItems[k]].position });
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		Monster &monster = Monsters[ActiveMonsters[i]];
-		if (monster.isPlayerMinion())
+		if (IsGolemSlot(monster))
 			continue;
 		const SourceKind kind = monster.isUnique() ? SourceKind::UniqueMonster : SourceKind::Monster;
 		for (Item &item : DryRun([&]() { SpawnMonsterLoot(monster); }))
@@ -572,7 +580,7 @@ std::vector<Drop> RealLevelDrops()
 	monsterIds.insert(monsterIds.end(), diabloIds.begin(), diabloIds.end());
 	for (int id : monsterIds) {
 		Monster &monster = Monsters[id];
-		if (monster.isPlayerMinion())
+		if (IsGolemSlot(monster))
 			continue;
 		const uint8_t firstActive = ActiveItemCount;
 		MonsterDeath(monster, Direction::South, false);
@@ -740,7 +748,7 @@ std::string TriggerColumns(interface_mode message)
 }
 
 // Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py. The last ones locate the
-// source and the level's stairs: up (on a set level, its exit) and down.
+// source and the level's stairs: up (on a set level, its exit), down, and up to town on dlvl 5, 9 and 13.
 std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level, const Drop &drop)
 {
 	const Item &item = drop.item;
@@ -755,7 +763,7 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	const bool isUnique = item._iMagical == ITEM_QUALITY_UNIQUE;
 	const bool hasSpell = item._iSpell != SpellID::Null && item._iMiscId == IMISC_STAFF;
 
-	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
 	    gameSeed, static_cast<int>(difficulty), level.dlvl, level.setLevel == SL_NONE ? "" : CsvField(GetSetLevelQuest(level.setLevel).name),
 	    SourceKindName(drop.kind), CsvField(drop.sourceName), drop.sourceIndex,
 	    ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL, isUnique ? "unique" : "magic",
@@ -765,7 +773,8 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	    item._iMinDam, item._iMaxDam, item._iAC, item._iMaxDur, item._iMinStr, item._iMinMag, item._iMinDex,
 	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo,
 	    RollText(prefix.roll), RollText(suffix.roll),
-	    drop.position.x, drop.position.y, TriggerColumns(level.setLevel == SL_NONE ? WM_DIABPREVLVL : WM_DIABRTNLVL), TriggerColumns(WM_DIABNEXTLVL));
+	    drop.position.x, drop.position.y, TriggerColumns(level.setLevel == SL_NONE ? WM_DIABPREVLVL : WM_DIABRTNLVL), TriggerColumns(WM_DIABNEXTLVL),
+	    TriggerColumns(WM_DIABTWARPUP));
 }
 
 std::optional<uint64_t> EnvNumber(const char *name)

@@ -12,7 +12,6 @@ A prefix or suffix can carry a minimum for the first number it shows, e.g. --pre
 import argparse
 import csv
 import datetime
-import math
 import os
 import queue
 import signal
@@ -32,7 +31,7 @@ ITEM_HEADER = [
     'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
     'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
     'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
-    'source_x', 'source_y', 'up_x', 'up_y', 'down_x', 'down_y',
+    'source_x', 'source_y', 'up_x', 'up_y', 'down_x', 'down_y', 'town_x', 'town_y',
 ]
 
 
@@ -194,43 +193,18 @@ class Worker:
         return True
 
 
-def screen_offset(dx, dy):
-    """A tile step in x goes down-right on screen and a step in y down-left."""
-    return dx - dy, dx + dy
-
-
-def direction(dx, dy):
-    right, down = screen_offset(dx, dy)
-    names = ['right', 'up-right', 'up', 'up-left', 'left', 'down-left', 'down', 'down-right']
-    return names[round(math.atan2(-down, right) / (math.pi / 4)) % 8]
-
-
-def map_area(x, y):
-    """Which ninth of the dungeon (tiles 16-95) the tile is in, as the automap shows it."""
-    right, down = screen_offset(x - 56, y - 56)
-    column = 'left' if right < -26 else 'right' if right > 26 else ''
-    row = 'top' if down < -26 else 'bottom' if down > 26 else ''
-    return '-'.join(part for part in (row, column) if part) or 'middle'
-
-
 def where_in_level(item):
-    """Where the source starts: its part of the map, and the way to it from each staircase."""
-    x, y = int(item['source_x']), int(item['source_y'])
-    parts = [f'{map_area(x, y)} part of the map']
-    up_name = 'the entrance' if item['set_level'] else 'the stairs up'
-    for name, sx, sy in ((up_name, item['up_x'], item['up_y']), ('the stairs down', item['down_x'], item['down_y'])):
-        if sx == '':
-            continue
-        dx, dy = x - int(sx), y - int(sy)
-        steps = max(abs(dx), abs(dy))
-        parts.append(f'next to {name}' if steps <= 2 else f'~{steps} steps {direction(dx, dy)} of {name}')
-    return ', '.join(parts)
+    """The source's starting tile and the level's stairs, in the game's tile coordinates: (0, 0) is the top
+    corner of the map, x runs toward the bottom-right edge and y toward the bottom-left edge."""
+    stairs = [('stairs up' if not item['set_level'] else 'entrance', 'up'), ('stairs down', 'down'), ('town stairs', 'town')]
+    known = [f"{name} ({item[key + '_x']}, {item[key + '_y']})" for name, key in stairs if item[key + '_x'] != '']
+    return f"at ({item['source_x']}, {item['source_y']})" + (f"; {', '.join(known)}" if known else '')
 
 
 def describe(item):
     powers = ', '.join(t for t in (item['prefix_text'], item['suffix_text']) if t)
     where = item['set_level'] or f"dlvl {item['dlvl']}"
-    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']}, {where_in_level(item)}"
+    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']} {where_in_level(item)}"
 
 
 def print_game(seed, difficulty, items, hung):
