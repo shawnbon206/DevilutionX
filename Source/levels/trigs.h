@@ -20,8 +20,8 @@ struct TriggerStruct {
 };
 
 extern bool trigflag;
-extern int numtrigs;
-extern TriggerStruct trigs[MAXTRIGGERS];
+extern DVL_API_FOR_TEST int numtrigs;
+extern DVL_API_FOR_TEST TriggerStruct trigs[MAXTRIGGERS];
 extern int TWarpFrom;
 
 void InitNoTriggers();

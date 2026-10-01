@@ -32,7 +32,7 @@ ITEM_HEADER = [
     'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
     'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
     'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
-    'source_x', 'source_y', 'arrive_x', 'arrive_y',
+    'source_x', 'source_y', 'up_x', 'up_y', 'down_x', 'down_y',
 ]
 
 
@@ -194,18 +194,37 @@ class Worker:
         return True
 
 
+def screen_offset(dx, dy):
+    """A tile step in x goes down-right on screen and a step in y down-left."""
+    return dx - dy, dx + dy
+
+
+def direction(dx, dy):
+    right, down = screen_offset(dx, dy)
+    names = ['right', 'up-right', 'up', 'up-left', 'left', 'down-left', 'down', 'down-right']
+    return names[round(math.atan2(-down, right) / (math.pi / 4)) % 8]
+
+
+def map_area(x, y):
+    """Which ninth of the dungeon (tiles 16-95) the tile is in, as the automap shows it."""
+    right, down = screen_offset(x - 56, y - 56)
+    column = 'left' if right < -26 else 'right' if right > 26 else ''
+    row = 'top' if down < -26 else 'bottom' if down > 26 else ''
+    return '-'.join(part for part in (row, column) if part) or 'middle'
+
+
 def where_in_level(item):
-    """Where the source starts, as seen on screen from where you arrive by the stairs from above."""
-    dx = int(item['source_x']) - int(item['arrive_x'])
-    dy = int(item['source_y']) - int(item['arrive_y'])
-    steps = max(abs(dx), abs(dy))
-    if steps <= 2:
-        return 'right where you arrive'
-    # A tile step in x goes down-right on screen and a step in y down-left.
-    right, down = dx - dy, dx + dy
-    directions = ['right', 'up-right', 'up', 'up-left', 'left', 'down-left', 'down', 'down-right']
-    direction = directions[round(math.atan2(-down, right) / (math.pi / 4)) % 8]
-    return f'~{steps} steps {direction} of where you arrive'
+    """Where the source starts: its part of the map, and the way to it from each staircase."""
+    x, y = int(item['source_x']), int(item['source_y'])
+    parts = [f'{map_area(x, y)} part of the map']
+    up_name = 'the entrance' if item['set_level'] else 'the stairs up'
+    for name, sx, sy in ((up_name, item['up_x'], item['up_y']), ('the stairs down', item['down_x'], item['down_y'])):
+        if sx == '':
+            continue
+        dx, dy = x - int(sx), y - int(sy)
+        steps = max(abs(dx), abs(dy))
+        parts.append(f'next to {name}' if steps <= 2 else f'~{steps} steps {direction(dx, dy)} of {name}')
+    return ', '.join(parts)
 
 
 def describe(item):

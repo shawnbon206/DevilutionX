@@ -729,8 +729,18 @@ std::string RollText(std::optional<int> roll)
 	return roll ? std::to_string(*roll) : "";
 }
 
-// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py. ViewPosition is still where
-// the player arrives on the level just generated: by the stairs from above, or a set level's entrance.
+// The tile of the level's first trigger with this message, as text columns "x,y", or ",".
+std::string TriggerColumns(interface_mode message)
+{
+	for (int i = 0; i < numtrigs; i++) {
+		if (trigs[i]._tmsg == message)
+			return fmt::format("{},{}", trigs[i].position.x, trigs[i].position.y);
+	}
+	return ",";
+}
+
+// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py. The last ones locate the
+// source and the level's stairs: up (on a set level, its exit) and down.
 std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level, const Drop &drop)
 {
 	const Item &item = drop.item;
@@ -755,7 +765,7 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	    item._iMinDam, item._iMaxDam, item._iAC, item._iMaxDur, item._iMinStr, item._iMinMag, item._iMinDex,
 	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo,
 	    RollText(prefix.roll), RollText(suffix.roll),
-	    drop.position.x, drop.position.y, ViewPosition.x, ViewPosition.y);
+	    drop.position.x, drop.position.y, TriggerColumns(level.setLevel == SL_NONE ? WM_DIABPREVLVL : WM_DIABRTNLVL), TriggerColumns(WM_DIABNEXTLVL));
 }
 
 std::optional<uint64_t> EnvNumber(const char *name)
