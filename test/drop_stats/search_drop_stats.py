@@ -12,6 +12,7 @@ A prefix or suffix can carry a minimum for the first number it shows, e.g. --pre
 import argparse
 import csv
 import datetime
+import math
 import os
 import queue
 import signal
@@ -31,6 +32,7 @@ ITEM_HEADER = [
     'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
     'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
     'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
+    'source_x', 'source_y', 'arrive_x', 'arrive_y',
 ]
 
 
@@ -187,10 +189,24 @@ class Worker:
         return True
 
 
+def where_in_level(item):
+    """Where the source starts, as seen on screen from where you arrive by the stairs from above."""
+    dx = int(item['source_x']) - int(item['arrive_x'])
+    dy = int(item['source_y']) - int(item['arrive_y'])
+    steps = max(abs(dx), abs(dy))
+    if steps <= 2:
+        return 'right where you arrive'
+    # A tile step in x goes down-right on screen and a step in y down-left.
+    right, down = dx - dy, dx + dy
+    directions = ['right', 'up-right', 'up', 'up-left', 'left', 'down-left', 'down', 'down-right']
+    direction = directions[round(math.atan2(-down, right) / (math.pi / 4)) % 8]
+    return f'~{steps} steps {direction} of where you arrive'
+
+
 def describe(item):
     powers = ', '.join(t for t in (item['prefix_text'], item['suffix_text']) if t)
     where = item['set_level'] or f"dlvl {item['dlvl']}"
-    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']}"
+    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']}, {where_in_level(item)}"
 
 
 def print_game(seed, difficulty, items, hung):

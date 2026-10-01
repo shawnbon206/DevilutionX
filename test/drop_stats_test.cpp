@@ -302,6 +302,8 @@ struct Drop {
 	int sourceIndex;
 	std::string sourceName;
 	Item item;
+	/** Where the source is when the level is created: the monster's starting tile, the object's, or the floor item's. */
+	Point position {};
 };
 
 std::optional<SourceKind> ContainerKind(const Object &object)
@@ -486,21 +488,21 @@ std::vector<Drop> DryRunLevelDrops()
 {
 	std::vector<Drop> drops;
 	for (uint8_t k = 0; k < ActiveItemCount; k++)
-		drops.push_back({ SourceKind::Other, FloorSource, "Floor", Items[ActiveItems[k]] });
+		drops.push_back({ SourceKind::Other, FloorSource, "Floor", Items[ActiveItems[k]], Items[ActiveItems[k]].position });
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		Monster &monster = Monsters[ActiveMonsters[i]];
 		if (monster.isPlayerMinion())
 			continue;
 		const SourceKind kind = monster.isUnique() ? SourceKind::UniqueMonster : SourceKind::Monster;
 		for (Item &item : DryRun([&]() { SpawnMonsterLoot(monster); }))
-			drops.push_back({ kind, ActiveMonsters[i], std::string(monster.name()), std::move(item) });
+			drops.push_back({ kind, ActiveMonsters[i], std::string(monster.name()), std::move(item), monster.position.tile });
 	}
 	for (int i = 0; i < ActiveObjectCount; i++) {
 		Object &object = Objects[ActiveObjects[i]];
 		if (object._otype == OBJ_SLAINHERO) {
 			for (HeroClass heroClass : SlainHeroClasses) {
 				for (Item &item : DryRun([&]() { SpawnSlainHeroLoot(object, heroClass); }))
-					drops.push_back({ SourceKind::Other, ActiveObjects[i], SlainHeroName(heroClass), std::move(item) });
+					drops.push_back({ SourceKind::Other, ActiveObjects[i], SlainHeroName(heroClass), std::move(item), object.position });
 			}
 			continue;
 		}
@@ -508,7 +510,7 @@ std::vector<Drop> DryRunLevelDrops()
 		if (!kind)
 			continue;
 		for (Item &item : DryRun([&]() { SpawnContainerLoot(object); }))
-			drops.push_back({ *kind, ActiveObjects[i], ContainerName(object), std::move(item) });
+			drops.push_back({ *kind, ActiveObjects[i], ContainerName(object), std::move(item), object.position });
 	}
 	return drops;
 }
@@ -727,7 +729,8 @@ std::string RollText(std::optional<int> roll)
 	return roll ? std::to_string(*roll) : "";
 }
 
-// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py.
+// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py. ViewPosition is still where
+// the player arrives on the level just generated: by the stairs from above, or a set level's entrance.
 std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level, const Drop &drop)
 {
 	const Item &item = drop.item;
@@ -742,7 +745,7 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	const bool isUnique = item._iMagical == ITEM_QUALITY_UNIQUE;
 	const bool hasSpell = item._iSpell != SpellID::Null && item._iMiscId == IMISC_STAFF;
 
-	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
 	    gameSeed, static_cast<int>(difficulty), level.dlvl, level.setLevel == SL_NONE ? "" : CsvField(GetSetLevelQuest(level.setLevel).name),
 	    SourceKindName(drop.kind), CsvField(drop.sourceName), drop.sourceIndex,
 	    ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL, isUnique ? "unique" : "magic",
@@ -751,7 +754,8 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	    isUnique ? CsvField(UniqueItems[item._iUid].UIName) : "", hasSpell ? CsvField(GetSpellData(item._iSpell).sNameText) : "", hasSpell ? std::to_string(item._iMaxCharges) : "",
 	    item._iMinDam, item._iMaxDam, item._iAC, item._iMaxDur, item._iMinStr, item._iMinMag, item._iMinDex,
 	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo,
-	    RollText(prefix.roll), RollText(suffix.roll));
+	    RollText(prefix.roll), RollText(suffix.roll),
+	    drop.position.x, drop.position.y, ViewPosition.x, ViewPosition.y);
 }
 
 std::optional<uint64_t> EnvNumber(const char *name)
