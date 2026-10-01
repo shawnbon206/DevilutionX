@@ -193,10 +193,18 @@ class Worker:
         return True
 
 
+def mark_command(item):
+    """The patched game's /pos command that marks the item's source on the automap. Monsters and objects keep
+    the numbers they get when the level is generated, so the game can follow a monster that moves."""
+    if item['source_index'] == '-1':
+        return f"/pos {item['source_x']} {item['source_y']}"
+    return f"/pos {'m' if item['source_kind'] in ('monster', 'unique_monster') else 'o'}{item['source_index']}"
+
+
 def describe(item):
     powers = ', '.join(t for t in (item['prefix_text'], item['suffix_text']) if t)
     where = item['set_level'] or f"dlvl {item['dlvl']}"
-    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']} at ({item['source_x']}, {item['source_y']})"
+    return f"{item['name']} ({powers}) - {where}, {item['source_kind']} {item['source_name']} at ({item['source_x']}, {item['source_y']}), mark with {mark_command(item)}"
 
 
 def print_game(seed, difficulty, items, hung):
