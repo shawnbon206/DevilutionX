@@ -31,7 +31,7 @@ Wishlist options:
   --unique "Harlequin Crest" unique items
   --min-roll 80              each wanted affix rolled at least 80% of the way up its own range
   Name:N                     a minimum for one affix's first shown number, e.g. --prefix Obsidian:39
-  --difficulty 0|1|2         Normal, Nightmare, Hell (default: all three)
+  --difficulty hell          normal, nightmare, hell, or 1, 2, 3; several allowed (default: all three)
   --seeds 50                 how many of the best seeds to list (default 20)
   --full-quests off          for games hosted with Full quests in Multiplayer off (default on)
   --randomize-quests off     for games hosted with Randomize Quests off (default on)
