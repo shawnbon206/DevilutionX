@@ -811,9 +811,11 @@ std::vector<Point> GetAutomapWaypoints()
 		return waypoints;
 	}
 	if (currlevel == routeLevel) {
-		if (entrance != nullptr && entrance->_qidx == Q_BETRAYER && entrance->_qactive == QUEST_INIT) {
-			// Lazarus' portal opens once Cain has the Staff of Lazarus: until someone has the staff, mark its
-			// stand, or the staff where it lies.
+		if (entrance != nullptr)
+			waypoints.push_back(entrance->position);
+		if (entrance != nullptr && entrance->_qidx == Q_BETRAYER) {
+			// Lazarus' portal opens there once Cain has the Staff of Lazarus, so the staff is marked too: its
+			// stand until it's taken, and the staff wherever it lies on this level.
 			for (int i = 0; i < ActiveObjectCount; i++) {
 				const Object &object = Objects[ActiveObjects[i]];
 				if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
@@ -823,11 +825,7 @@ std::vector<Point> GetAutomapWaypoints()
 				if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
 					waypoints.push_back(Items[ActiveItems[i]].position);
 			}
-			if (!waypoints.empty())
-				return waypoints;
 		}
-		if (entrance != nullptr)
-			waypoints.push_back(entrance->position);
 		return waypoints;
 	}
 	if (leveltype == DTYPE_TOWN) {
