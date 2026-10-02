@@ -274,6 +274,8 @@ public:
 	std::size_t m_max_length;
 	TextInputCursorState m_cursor;
 	bool m_allowEmpty;
+	/** Shows the text from its first '-' on a second line, for seed codes ("1790847150" over "-16:m59"). */
+	bool m_breakBeforeDash = false;
 };
 
 //=============================================================================
