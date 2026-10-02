@@ -46,6 +46,7 @@
 #include "plrmsg.h"
 #include "portal.h"
 #include "qol/stash.h"
+#include "qol/player_tracking.h"
 #include "qol/xpbar.h"
 #include "quests.h"
 #include "stores.h"
@@ -641,6 +642,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
 	{ N_("/pos"), N_("Shows your tile, or marks a tile, monster or object on the automap."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | off]"), &TextCmdPos },
+	{ N_("/track"), N_("Shows which level a player is on, under the FPS counter."), N_("<player name> | off"), &TextCmdTrack },
 };
 
 bool CheckTextCommand(const string_view text)
