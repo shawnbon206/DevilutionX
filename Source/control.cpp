@@ -43,6 +43,7 @@
 #include "panels/spell_icons.hpp"
 #include "panels/spell_list.hpp"
 #include "playerdat.hpp"
+#include "plrmsg.h"
 #include "portal.h"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
@@ -550,23 +551,45 @@ struct PositionMarker {
 	bool isSetLevel;
 	/** For a player: their name, so someone else taking their slot isn't followed instead. */
 	std::string playerName = {};
+	/** For a player: whether they were on your level, and which level that was (-1 until first seen), to say when they come or go. */
+	bool playerWasHere = false;
+	int seenFromLevel = -1;
+	bool seenFromSetLevel = false;
 };
 
 std::optional<PositionMarker> Marker;
 
-/** Follows a marked player to whatever level they're on now, and drops the marker once they've left the game. */
+std::string MarkerLevelName(uint8_t level, bool isSetLevel);
+
+/**
+ * Follows a marked player to whatever level they're on now, says in the chat log when they come to your level or
+ * leave it, and drops the marker once they've left the game.
+ */
 void UpdatePlayerMarker()
 {
 	if (!Marker || Marker->kind != PositionMarker::Kind::Player)
 		return;
 	const size_t id = static_cast<size_t>(Marker->index);
 	if (id >= Players.size() || !Players[id].plractive || Marker->playerName != Players[id]._pName) {
-		InitDiabloMsg(fmt::format(fmt::runtime(_("{:s} left the game. Automap marker cleared.")), Marker->playerName));
+		EventPlrMsg(fmt::format(fmt::runtime(_("{:s} left the game. Automap marker cleared.")), Marker->playerName));
 		Marker = std::nullopt;
 		return;
 	}
 	Marker->level = Players[id].plrlevel;
 	Marker->isSetLevel = Players[id].plrIsOnSetLevel;
+
+	// Only their moves are told here; your own arrival on a level is AnnounceAutomapMarker's.
+	const bool here = Marker->level == currlevel && Marker->isSetLevel == setlevel;
+	const bool youMoved = Marker->seenFromLevel != currlevel || Marker->seenFromSetLevel != setlevel;
+	if (!youMoved && here != Marker->playerWasHere) {
+		if (here)
+			EventPlrMsg(fmt::format(fmt::runtime(_("{:s} is on your level.")), Marker->playerName));
+		else
+			EventPlrMsg(fmt::format(fmt::runtime(_("{:s} went to {:s}.")), Marker->playerName, MarkerLevelName(Marker->level, Marker->isSetLevel)));
+	}
+	Marker->playerWasHere = here;
+	Marker->seenFromLevel = currlevel;
+	Marker->seenFromSetLevel = setlevel;
 }
 
 bool IsMarkerOnThisLevel()
@@ -958,7 +981,7 @@ void ClearAutomapMarker()
 void AnnounceAutomapMarker()
 {
 	if (IsMarkerOnThisLevel())
-		InitDiabloMsg(GetAutomapMarkerText(), 10000);
+		EventPlrMsg(GetAutomapMarkerText());
 }
 
 std::optional<Point> GetAutomapMarkerTile()
