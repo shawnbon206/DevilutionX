@@ -549,25 +549,36 @@ struct PositionMarker {
 	Point tile;
 	uint8_t level;
 	bool isSetLevel;
-	/** For a player: their name, so someone else taking their slot isn't followed instead. */
+	/** For a player: who, found again by name each tick, so a player who leaves and rejoins is followed again. */
 	std::string playerName = {};
+	/** For a player who isn't in the game now (index -1): when they left, to show that on the HUD for a while. */
+	uint32_t playerLeftAt = 0;
 };
 
 std::optional<PositionMarker> Marker;
 
-/** Follows a marked player to whatever level they're on now, and drops the marker once they've left the game. */
+/** Level for a marked player who isn't in the game: never the level you're on. */
+constexpr uint8_t AbsentPlayerLevel = 0xFF;
+
+std::optional<size_t> FindPlayerByName(string_view name);
+
+/** Follows a marked player to whatever level they're on now; while they're out of the game, waits for them to rejoin. */
 void UpdatePlayerMarker()
 {
 	if (!Marker || Marker->kind != PositionMarker::Kind::Player)
 		return;
-	const size_t id = static_cast<size_t>(Marker->index);
-	if (id >= Players.size() || !Players[id].plractive || Marker->playerName != Players[id]._pName) {
-		EventPlrMsg(fmt::format(fmt::runtime(_("{:s} left the game. Automap marker cleared.")), Marker->playerName));
-		Marker = std::nullopt;
+	const std::optional<size_t> id = FindPlayerByName(Marker->playerName);
+	if (!id || &Players[*id] == MyPlayer) {
+		if (Marker->index >= 0)
+			Marker->playerLeftAt = SDL_GetTicks();
+		Marker->index = -1;
+		Marker->level = AbsentPlayerLevel;
+		Marker->isSetLevel = false;
 		return;
 	}
-	Marker->level = Players[id].plrlevel;
-	Marker->isSetLevel = Players[id].plrIsOnSetLevel;
+	Marker->index = static_cast<int>(*id);
+	Marker->level = Players[*id].plrlevel;
+	Marker->isSetLevel = Players[*id].plrIsOnSetLevel;
 }
 
 bool IsMarkerOnThisLevel()
@@ -844,6 +855,8 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 	std::vector<AutomapWaypoint> waypoints;
 	if (!Marker || IsMarkerOnThisLevel())
 		return waypoints;
+	if (Marker->kind == PositionMarker::Kind::Player && Marker->index < 0)
+		return waypoints; // not in the game right now
 
 	// A marked quest level is reached through its entrance on a dungeon level; head for that level first.
 	int routeLevel = Marker->level;
@@ -960,6 +973,12 @@ void DrawPlayerTracking(const Surface &out)
 {
 	if (!Marker || Marker->kind != PositionMarker::Kind::Player)
 		return;
+	if (Marker->index < 0) {
+		// Gone for now: say so for a while, then show nothing until they rejoin.
+		if (SDL_GetTicks() - Marker->playerLeftAt < 10000)
+			DrawString(out, fmt::format(fmt::runtime(_("{:s} left the game")), Marker->playerName), Point { 8, 82 }, { UiFlags::ColorWhitegold });
+		return;
+	}
 	if (IsMarkerOnThisLevel()) {
 		DrawString(out, fmt::format(fmt::runtime(_("{:s} is on your level")), Marker->playerName), Point { 8, 82 }, { UiFlags::ColorRed });
 		return;
