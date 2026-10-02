@@ -662,16 +662,17 @@ uint8_t ClosestPaletteColor(SDL_Color color)
 /**
  * @brief Renders the /pos marker and its waypoints: a small white diamond, or for an errand on the way (the Staff of
  * Lazarus) an A, the diamond's top half with a crossbar, like the staff's stand seen from the side. White because
- * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green.
+ * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green. A marked player is
+ * passed with how far into their step they are, as their arrow is, so the diamond moves with the arrow.
  */
-void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile, bool errand = false)
+void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile, bool errand = false, Displacement walking = {})
 {
 	const int px = tile.x - 2 * AutomapOffset.deltaX - ViewPosition.x;
 	const int py = tile.y - 2 * AutomapOffset.deltaY - ViewPosition.y;
 
 	Point screen = {
-		(myPlayerOffset.deltaX * AutoMapScale / 100 / 2) + (px - py) * AmLine(16) + gnScreenWidth / 2,
-		(myPlayerOffset.deltaY * AutoMapScale / 100 / 2) + (px + py) * AmLine(8) + (gnScreenHeight - GetMainPanel().size.height) / 2
+		((walking.deltaX + myPlayerOffset.deltaX) * AutoMapScale / 100 / 2) + (px - py) * AmLine(16) + gnScreenWidth / 2,
+		((walking.deltaY + myPlayerOffset.deltaY) * AutoMapScale / 100 / 2) + (px + py) * AmLine(8) + (gnScreenHeight - GetMainPanel().size.height) / 2
 	};
 	if (CanPanelsCoverView()) {
 		if (IsRightPanelOpen())
@@ -1042,8 +1043,15 @@ void DrawAutomap(const Surface &out)
 	}
 
 	myPlayerOffset.deltaY -= TILE_HEIGHT / 2;
-	if (std::optional<Point> marked = GetAutomapMarkerTile())
+	if (std::optional<size_t> markedPlayer = GetAutomapMarkedPlayer()) {
+		// Placed the way DrawAutomapPlr places the player's arrow.
+		const Player &player = Players[*markedPlayer];
+		const Point tile = player._pmode == PM_WALK_SIDEWAYS ? player.position.future : player.position.tile;
+		const Displacement walking = player.isWalking() ? GetOffsetForWalking(player.AnimInfo, player._pdir) : Displacement {};
+		DrawAutomapMarker(out, myPlayerOffset, tile, false, walking);
+	} else if (std::optional<Point> marked = GetAutomapMarkerTile()) {
 		DrawAutomapMarker(out, myPlayerOffset, *marked);
+	}
 	for (const AutomapWaypoint &waypoint : GetAutomapWaypoints())
 		DrawAutomapMarker(out, myPlayerOffset, waypoint.tile, waypoint.errand);
 	if (AutoMapShowItems)
