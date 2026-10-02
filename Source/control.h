@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include <SDL.h>
 
@@ -140,6 +141,13 @@ void AnnounceAutomapMarker();
  * @brief The tile marked with /pos on this level: a fixed tile, or where the marked monster or object is now.
  */
 std::optional<Point> GetAutomapMarkerTile();
+
+/**
+ * @brief When the marked target is on another level, the stairs or entrance on this level that lead toward it:
+ * down stairs above it, up stairs below it, the entrance or town warp that gets closest in town, and on the level
+ * a marked quest level is entered from, that entrance.
+ */
+std::vector<Point> GetAutomapWaypoints();
 
 /**
  * @brief A line describing what /pos marked on this level, or empty.

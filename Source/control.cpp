@@ -43,6 +43,7 @@
 #include "playerdat.hpp"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
+#include "quests.h"
 #include "stores.h"
 #include "towners.h"
 #include "utils/format_int.hpp"
@@ -751,6 +752,61 @@ bool SetAutomapMarkerFromCode(string_view levelAndTarget)
 		return false;
 	Marker = marker;
 	return true;
+}
+
+std::vector<Point> GetAutomapWaypoints()
+{
+	std::vector<Point> waypoints;
+	if (!Marker || IsMarkerOnThisLevel())
+		return waypoints;
+
+	// A marked quest level is reached through its entrance on a dungeon level; head for that level first.
+	int routeLevel = Marker->level;
+	const Quest *entrance = nullptr;
+	if (Marker->isSetLevel) {
+		for (const Quest &quest : Quests) {
+			if (quest._qslvl == Marker->level && quest._qactive != QUEST_NOTAVAIL) {
+				entrance = &quest;
+				routeLevel = quest._qlevel;
+			}
+		}
+		if (entrance == nullptr)
+			return waypoints;
+	}
+
+	auto addTriggers = [&waypoints](interface_mode message) {
+		for (int i = 0; i < numtrigs; i++) {
+			if (trigs[i]._tmsg == message)
+				waypoints.push_back(trigs[i].position);
+		}
+	};
+
+	if (setlevel) {
+		addTriggers(WM_DIABRTNLVL);
+		return waypoints;
+	}
+	if (leveltype == DTYPE_TOWN) {
+		// The cathedral entrance or the unlocked town warp that gets deepest without passing the marked level.
+		int best = -1;
+		int bestLevel = 0;
+		for (int i = 0; i < numtrigs; i++) {
+			const int leadsTo = trigs[i]._tmsg == WM_DIABNEXTLVL ? 1 : (trigs[i]._tmsg == WM_DIABTOWNWARP ? trigs[i]._tlvl : 0);
+			if (leadsTo > bestLevel && leadsTo <= routeLevel) {
+				best = i;
+				bestLevel = leadsTo;
+			}
+		}
+		if (best >= 0)
+			waypoints.push_back(trigs[best].position);
+		return waypoints;
+	}
+	if (currlevel == routeLevel) {
+		if (entrance != nullptr)
+			waypoints.push_back(entrance->position);
+		return waypoints;
+	}
+	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
+	return waypoints;
 }
 
 void ClearAutomapMarker()

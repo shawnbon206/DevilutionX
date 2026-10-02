@@ -1037,6 +1037,8 @@ void DrawAutomap(const Surface &out)
 	myPlayerOffset.deltaY -= TILE_HEIGHT / 2;
 	if (std::optional<Point> marked = GetAutomapMarkerTile())
 		DrawAutomapMarker(out, myPlayerOffset, *marked);
+	for (Point waypoint : GetAutomapWaypoints())
+		DrawAutomapMarker(out, myPlayerOffset, waypoint);
 	if (AutoMapShowItems)
 		SearchAutomapItem(out, myPlayerOffset, 8, [](Point position) { return dItem[position.x][position.y] != 0; });
 #ifdef _DEBUG
