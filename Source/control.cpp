@@ -753,6 +753,12 @@ bool SetAutomapMarkerFromCode(string_view levelAndTarget)
 	return true;
 }
 
+void AnnounceAutomapMarker()
+{
+	if (IsMarkerOnThisLevel())
+		InitDiabloMsg(GetAutomapMarkerText(), 10000);
+}
+
 std::optional<Point> GetAutomapMarkerTile()
 {
 	if (!IsMarkerOnThisLevel())

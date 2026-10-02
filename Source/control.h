@@ -127,6 +127,11 @@ void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue)
 bool SetAutomapMarkerFromCode(string_view levelAndTarget);
 
 /**
+ * @brief Shows what /pos or a seed code marked on this level, so arriving on the level says which monster or object it is.
+ */
+void AnnounceAutomapMarker();
+
+/**
  * @brief The tile marked with /pos on this level: a fixed tile, or where the marked monster or object is now.
  */
 std::optional<Point> GetAutomapMarkerTile();
