@@ -674,9 +674,9 @@ void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, P
 	};
 	if (CanPanelsCoverView()) {
 		if (IsRightPanelOpen())
-			screen.x -= 160;
+			screen.x -= gnScreenWidth / 4;
 		if (IsLeftPanelOpen())
-			screen.x += 160;
+			screen.x += gnScreenWidth / 4;
 	}
 	screen.y -= AmLine(8);
 
