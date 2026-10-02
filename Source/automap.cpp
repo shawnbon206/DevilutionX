@@ -662,8 +662,8 @@ uint8_t ClosestPaletteColor(SDL_Color color)
 /**
  * @brief Renders the /pos marker and its waypoints: a small white diamond, or for an errand on the way (the Staff of
  * Lazarus) an A, the diamond's top half with a crossbar, like the staff's stand seen from the side. White because
- * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green. A marked player is
- * passed with how far into their step they are, as their arrow is, so the diamond moves with the arrow.
+ * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green. A marked monster is
+ * passed with how far into its step it is, as player arrows are, so the diamond glides with it.
  */
 void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile, bool errand = false, Displacement walking = {})
 {
@@ -1043,14 +1043,8 @@ void DrawAutomap(const Surface &out)
 	}
 
 	myPlayerOffset.deltaY -= TILE_HEIGHT / 2;
-	if (std::optional<size_t> markedPlayer = GetAutomapMarkedPlayer()) {
-		// Placed the way DrawAutomapPlr places the player's arrow.
-		const Player &player = Players[*markedPlayer];
-		const Point tile = player._pmode == PM_WALK_SIDEWAYS ? player.position.future : player.position.tile;
-		const Displacement walking = player.isWalking() ? GetOffsetForWalking(player.AnimInfo, player._pdir) : Displacement {};
-		DrawAutomapMarker(out, myPlayerOffset, tile, false, walking);
-	} else if (std::optional<size_t> markedMonster = GetAutomapMarkedMonster()) {
-		// The same way for a monster, which the game moves through its steps like a player.
+	if (std::optional<size_t> markedMonster = GetAutomapMarkedMonster()) {
+		// Placed the way DrawAutomapPlr places a player's arrow: the game moves monsters through their steps like players.
 		const Monster &monster = Monsters[*markedMonster];
 		const Point tile = monster.mode == MonsterMode::MoveSideways ? monster.position.future : monster.position.tile;
 		const Displacement walking = monster.isWalking() ? GetOffsetForWalking(monster.animInfo, monster.direction) : Displacement {};

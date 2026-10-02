@@ -128,18 +128,6 @@ void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue)
 bool SetAutomapMarkerFromCode(string_view levelAndTarget);
 
 /**
- * @brief Keeps a marked player's level current, and notices when they leave the game. Runs every game tick, so it
- * works with the automap closed.
- */
-void UpdateAutomapMarker();
-
-/**
- * @brief While a player is marked, a line under the FPS counter with who and which level they're on, in red once
- * they're on your level.
- */
-void DrawPlayerTracking(const Surface &out);
-
-/**
  * @brief Removes the automap marker, so one game's marker doesn't carry over into the next.
  */
 void ClearAutomapMarker();
@@ -150,14 +138,8 @@ void ClearAutomapMarker();
 void AnnounceAutomapMarker();
 
 /**
- * @brief The player marked with /pos, when they're on this level, so the automap can place the marker exactly as it
- * places their arrow.
- */
-std::optional<size_t> GetAutomapMarkedPlayer();
-
-/**
  * @brief The monster marked with /pos, when it's alive on this level, so the automap can move the marker with it
- * through each step as it moves the player arrows.
+ * through each step, as the automap moves the player arrows.
  */
 std::optional<size_t> GetAutomapMarkedMonster();
 
