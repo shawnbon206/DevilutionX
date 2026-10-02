@@ -1,7 +1,7 @@
 /**
  * @file player_tracking.cpp
  *
- * Says when another player enters your level, and with /players lists which level every other player is on.
+ * Lists which level every other player is on, and says when one enters your level.
  */
 #include "qol/player_tracking.h"
 
@@ -20,8 +20,6 @@
 namespace devilution {
 
 namespace {
-
-bool ShowPlayerLevels = false;
 
 /** Which players were on your level last tick, and the level you were on then, to notice someone arriving. */
 std::array<bool, MAX_PLRS> WasOnYourLevel {};
@@ -69,8 +67,6 @@ void UpdatePlayerTracking()
 
 void DrawPlayerTracking(const Surface &out)
 {
-	if (!ShowPlayerLevels)
-		return;
 	int nameWidth = 0;
 	for (const Player &player : Players) {
 		if (player.plractive && &player != MyPlayer)
@@ -85,12 +81,6 @@ void DrawPlayerTracking(const Surface &out)
 		DrawString(out, ShortLevelName(player), Point { 8 + nameWidth + 8, y }, { color });
 		y += 12;
 	}
-}
-
-std::string TextCmdPlayers(string_view /*parameter*/)
-{
-	ShowPlayerLevels = !ShowPlayerLevels;
-	return std::string(ShowPlayerLevels ? _("Showing which level each player is on.") : _("Player levels hidden."));
 }
 
 } // namespace devilution

@@ -42,7 +42,6 @@
 #include "panels/spell_list.hpp"
 #include "playerdat.hpp"
 #include "qol/stash.h"
-#include "qol/player_tracking.h"
 #include "qol/xpbar.h"
 #include "stores.h"
 #include "towners.h"
@@ -535,7 +534,6 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/players"), N_("Turns on or off a list of which level each player is on."), "", &TextCmdPlayers },
 };
 
 bool CheckTextCommand(const string_view text)
