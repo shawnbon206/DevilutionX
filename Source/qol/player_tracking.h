@@ -1,7 +1,7 @@
 /**
  * @file player_tracking.h
  *
- * Says when another player enters your level, and follows one player's level with /track.
+ * Says when another player enters your level, and with /players lists which level every other player is on.
  */
 #pragma once
 
@@ -13,19 +13,19 @@ namespace devilution {
 
 struct Surface;
 
-/** @brief Forgets the tracked player and who was on your level; called when a game starts. */
+/** @brief Forgets who was on your level; called when a game starts. */
 void ResetPlayerTracking();
 
 /** @brief Says in the chat log when another player enters your level. Runs every game tick. */
 void UpdatePlayerTracking();
 
 /**
- * @brief While a player is tracked, a line under the FPS counter with which level they're on, red once they're on
- * yours. Nothing while they're out of the game; it comes back if they rejoin.
+ * @brief While /players is on, a compact list under the FPS counter: each other player's name and level, the levels
+ * in a column ("16", "s5" for a quest level, "t" for town), in red for anyone on your level.
  */
 void DrawPlayerTracking(const Surface &out);
 
-/** @brief The /track command: "/track <player name>" starts tracking, "/track off" stops. */
-std::string TextCmdTrack(string_view parameter);
+/** @brief The /players command, which turns the list on and off. */
+std::string TextCmdPlayers(string_view parameter);
 
 } // namespace devilution

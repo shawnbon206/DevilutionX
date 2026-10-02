@@ -1,12 +1,12 @@
 /**
  * @file player_tracking.cpp
  *
- * Says when another player enters your level, and follows one player's level with /track.
+ * Says when another player enters your level, and with /players lists which level every other player is on.
  */
 #include "qol/player_tracking.h"
 
+#include <algorithm>
 #include <array>
-#include <optional>
 
 #include <fmt/format.h>
 
@@ -15,16 +15,13 @@
 #include "levels/gendung.h"
 #include "player.h"
 #include "plrmsg.h"
-#include "quests.h"
 #include "utils/language.h"
-#include "utils/str_case.hpp"
 
 namespace devilution {
 
 namespace {
 
-/** Who /track follows, by name, so they're found again if they leave and rejoin; empty when nobody is tracked. */
-std::string TrackedName;
+bool ShowPlayerLevels = false;
 
 /** Which players were on your level last tick, and the level you were on then, to notice someone arriving. */
 std::array<bool, MAX_PLRS> WasOnYourLevel {};
@@ -36,35 +33,20 @@ bool IsOnYourLevel(const Player &player)
 	return player.plractive && &player != MyPlayer && player.isOnActiveLevel();
 }
 
-std::optional<size_t> FindPlayerByName(string_view name)
+/** "16" for a dungeon level, "s5" for a quest level (Lazarus' Lair), "t" for town. */
+std::string ShortLevelName(const Player &player)
 {
-	const std::string wanted = AsciiStrToLower(name);
-	for (size_t id = 0; id < Players.size(); id++) {
-		if (Players[id].plractive && &Players[id] != MyPlayer && AsciiStrToLower(Players[id]._pName) == wanted)
-			return id;
-	}
-	return std::nullopt;
-}
-
-/** "town", "dungeon level 9", or a quest level's name. */
-std::string LevelName(const Player &player)
-{
-	if (player.plrIsOnSetLevel) {
-		for (const Quest &quest : Quests) {
-			if (quest._qslvl == player.plrlevel)
-				return std::string(_(QuestsData[quest._qidx]._qlstr));
-		}
-	}
+	if (player.plrIsOnSetLevel)
+		return fmt::format("s{:d}", player.plrlevel);
 	if (player.plrlevel == 0)
-		return std::string(_("town"));
-	return fmt::format(fmt::runtime(_("dungeon level {:d}")), player.plrlevel);
+		return "t";
+	return fmt::format("{:d}", player.plrlevel);
 }
 
 } // namespace
 
 void ResetPlayerTracking()
 {
-	TrackedName.clear();
 	WasOnYourLevel = {};
 	SeenFromLevel = -1;
 }
@@ -87,35 +69,28 @@ void UpdatePlayerTracking()
 
 void DrawPlayerTracking(const Surface &out)
 {
-	if (TrackedName.empty())
+	if (!ShowPlayerLevels)
 		return;
-	const std::optional<size_t> id = FindPlayerByName(TrackedName);
-	if (!id)
-		return;
-	const Player &player = Players[*id];
-	if (IsOnYourLevel(player)) {
-		DrawString(out, fmt::format(fmt::runtime(_("{:s} is on your level")), player._pName), Point { 8, 82 }, { UiFlags::ColorRed });
-		return;
+	int nameWidth = 0;
+	for (const Player &player : Players) {
+		if (player.plractive && &player != MyPlayer)
+			nameWidth = std::max(nameWidth, GetLineWidth(player._pName));
 	}
-	DrawString(out, fmt::format(fmt::runtime(_("Tracking {:s}: {:s}")), player._pName, LevelName(player)), Point { 8, 82 }, { UiFlags::ColorWhitegold });
+	int y = 82;
+	for (const Player &player : Players) {
+		if (!player.plractive || &player == MyPlayer)
+			continue;
+		const UiFlags color = IsOnYourLevel(player) ? UiFlags::ColorRed : UiFlags::ColorWhitegold;
+		DrawString(out, player._pName, Point { 8, y }, { color });
+		DrawString(out, ShortLevelName(player), Point { 8 + nameWidth + 8, y }, { color });
+		y += 12;
+	}
 }
 
-std::string TextCmdTrack(string_view parameter)
+std::string TextCmdPlayers(string_view /*parameter*/)
 {
-	if (parameter.empty()) {
-		if (TrackedName.empty())
-			return std::string(_("Use /track <player name> or /track off."));
-		return fmt::format(fmt::runtime(_("Tracking {:s}.")), TrackedName);
-	}
-	if (parameter == "off") {
-		TrackedName.clear();
-		return std::string(_("Stopped tracking."));
-	}
-	const std::optional<size_t> id = FindPlayerByName(parameter);
-	if (!id)
-		return fmt::format(fmt::runtime(_("There is no other player called {:s} in this game.")), parameter);
-	TrackedName = Players[*id]._pName;
-	return fmt::format(fmt::runtime(_("Tracking {:s}.")), TrackedName);
+	ShowPlayerLevels = !ShowPlayerLevels;
+	return std::string(ShowPlayerLevels ? _("Showing which level each player is on.") : _("Player levels hidden."));
 }
 
 } // namespace devilution
