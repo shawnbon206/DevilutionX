@@ -551,8 +551,6 @@ struct PositionMarker {
 	bool isSetLevel;
 	/** For a player: who, found again by name each tick, so a player who leaves and rejoins is followed again. */
 	std::string playerName = {};
-	/** For a player who isn't in the game now (index -1): when they left, to show that on the HUD for a while. */
-	uint32_t playerLeftAt = 0;
 };
 
 std::optional<PositionMarker> Marker;
@@ -569,8 +567,6 @@ void UpdatePlayerMarker()
 		return;
 	const std::optional<size_t> id = FindPlayerByName(Marker->playerName);
 	if (!id || &Players[*id] == MyPlayer) {
-		if (Marker->index >= 0)
-			Marker->playerLeftAt = SDL_GetTicks();
 		Marker->index = -1;
 		Marker->level = AbsentPlayerLevel;
 		Marker->isSetLevel = false;
@@ -973,12 +969,8 @@ void DrawPlayerTracking(const Surface &out)
 {
 	if (!Marker || Marker->kind != PositionMarker::Kind::Player)
 		return;
-	if (Marker->index < 0) {
-		// Gone for now: say so for a while, then show nothing until they rejoin.
-		if (SDL_GetTicks() - Marker->playerLeftAt < 10000)
-			DrawString(out, fmt::format(fmt::runtime(_("{:s} left the game")), Marker->playerName), Point { 8, 82 }, { UiFlags::ColorWhitegold });
-		return;
-	}
+	if (Marker->index < 0)
+		return; // not in the game right now; the line comes back when they rejoin
 	if (IsMarkerOnThisLevel()) {
 		DrawString(out, fmt::format(fmt::runtime(_("{:s} is on your level")), Marker->playerName), Point { 8, 82 }, { UiFlags::ColorRed });
 		return;
