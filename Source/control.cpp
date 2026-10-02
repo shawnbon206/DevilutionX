@@ -551,20 +551,11 @@ struct PositionMarker {
 	bool isSetLevel;
 	/** For a player: their name, so someone else taking their slot isn't followed instead. */
 	std::string playerName = {};
-	/** For a player: whether they were on your level, and which level that was (-1 until first seen), to say when they come or go. */
-	bool playerWasHere = false;
-	int seenFromLevel = -1;
-	bool seenFromSetLevel = false;
 };
 
 std::optional<PositionMarker> Marker;
 
-std::string MarkerLevelName(uint8_t level, bool isSetLevel);
-
-/**
- * Follows a marked player to whatever level they're on now, says in the chat log when they come to your level or
- * leave it, and drops the marker once they've left the game.
- */
+/** Follows a marked player to whatever level they're on now, and drops the marker once they've left the game. */
 void UpdatePlayerMarker()
 {
 	if (!Marker || Marker->kind != PositionMarker::Kind::Player)
@@ -577,19 +568,6 @@ void UpdatePlayerMarker()
 	}
 	Marker->level = Players[id].plrlevel;
 	Marker->isSetLevel = Players[id].plrIsOnSetLevel;
-
-	// Only their moves are told here; your own arrival on a level is AnnounceAutomapMarker's.
-	const bool here = Marker->level == currlevel && Marker->isSetLevel == setlevel;
-	const bool youMoved = Marker->seenFromLevel != currlevel || Marker->seenFromSetLevel != setlevel;
-	if (!youMoved && here != Marker->playerWasHere) {
-		if (here)
-			EventPlrMsg(fmt::format(fmt::runtime(_("{:s} is on your level.")), Marker->playerName));
-		else
-			EventPlrMsg(fmt::format(fmt::runtime(_("{:s} went to {:s}.")), Marker->playerName, MarkerLevelName(Marker->level, Marker->isSetLevel)));
-	}
-	Marker->playerWasHere = here;
-	Marker->seenFromLevel = currlevel;
-	Marker->seenFromSetLevel = setlevel;
 }
 
 bool IsMarkerOnThisLevel()
@@ -976,6 +954,17 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 void UpdateAutomapMarker()
 {
 	UpdatePlayerMarker();
+}
+
+void DrawPlayerTracking(const Surface &out)
+{
+	if (!Marker || Marker->kind != PositionMarker::Kind::Player)
+		return;
+	if (IsMarkerOnThisLevel()) {
+		DrawString(out, fmt::format(fmt::runtime(_("{:s} is on your level")), Marker->playerName), Point { 8, 82 }, { UiFlags::ColorRed });
+		return;
+	}
+	DrawString(out, fmt::format(fmt::runtime(_("Tracking {:s}: {:s}")), Marker->playerName, MarkerLevelName(Marker->level, Marker->isSetLevel)), Point { 8, 82 }, { UiFlags::ColorWhitegold });
 }
 
 void ClearAutomapMarker()

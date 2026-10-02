@@ -128,10 +128,16 @@ void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue)
 bool SetAutomapMarkerFromCode(string_view levelAndTarget);
 
 /**
- * @brief Keeps a marked player's level current and says in the chat log when they come to your level or leave it.
- * Runs every game tick, so it works with the automap closed.
+ * @brief Keeps a marked player's level current, and notices when they leave the game. Runs every game tick, so it
+ * works with the automap closed.
  */
 void UpdateAutomapMarker();
+
+/**
+ * @brief While a player is marked, a line under the FPS counter with who and which level they're on, in red once
+ * they're on your level.
+ */
+void DrawPlayerTracking(const Surface &out);
 
 /**
  * @brief Removes the automap marker, so one game's marker doesn't carry over into the next.
