@@ -973,6 +973,11 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 	return waypoints;
 }
 
+void UpdateAutomapMarker()
+{
+	UpdatePlayerMarker();
+}
+
 void ClearAutomapMarker()
 {
 	Marker = std::nullopt;
