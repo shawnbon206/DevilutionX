@@ -753,6 +753,11 @@ bool SetAutomapMarkerFromCode(string_view levelAndTarget)
 	return true;
 }
 
+void ClearAutomapMarker()
+{
+	Marker = std::nullopt;
+}
+
 void AnnounceAutomapMarker()
 {
 	if (IsMarkerOnThisLevel())

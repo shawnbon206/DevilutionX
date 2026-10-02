@@ -818,6 +818,8 @@ bool UiSelectGame(GameData *gameData, int *playerId)
 	firstPublicGameInfoRequestSend = 0;
 	gdwPlayerId = playerId;
 	m_game_data = gameData;
+	// A marker belongs to the game it was set in; a new game starts without one unless its seed code sets one.
+	ClearAutomapMarker();
 	selgame_Init();
 	HighlightedItem = 0;
 	selgame_GameSelection_Init();

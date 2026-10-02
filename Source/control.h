@@ -127,6 +127,11 @@ void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue)
 bool SetAutomapMarkerFromCode(string_view levelAndTarget);
 
 /**
+ * @brief Removes the automap marker, so one game's marker doesn't carry over into the next.
+ */
+void ClearAutomapMarker();
+
+/**
  * @brief Shows what /pos or a seed code marked on this level, so arriving on the level says which monster or object it is.
  */
 void AnnounceAutomapMarker();
