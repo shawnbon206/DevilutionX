@@ -147,7 +147,12 @@ std::optional<Point> GetAutomapMarkerTile();
  * down stairs above it, up stairs below it, the entrance or town warp that gets closest in town, and on the level
  * a marked quest level is entered from, that entrance.
  */
-std::vector<Point> GetAutomapWaypoints();
+struct AutomapWaypoint {
+	Point tile;
+	/** Something to pick up on the way rather than a way forward (the Staff of Lazarus), drawn differently. */
+	bool errand = false;
+};
+std::vector<AutomapWaypoint> GetAutomapWaypoints();
 
 /**
  * @brief A line describing what /pos marked on this level, or empty.
