@@ -989,6 +989,13 @@ void AnnounceAutomapMarker()
 		EventPlrMsg(GetAutomapMarkerText());
 }
 
+std::optional<size_t> GetAutomapMarkedPlayer()
+{
+	if (!IsMarkerOnThisLevel() || Marker->kind != PositionMarker::Kind::Player || Marker->index < 0)
+		return std::nullopt;
+	return static_cast<size_t>(Marker->index);
+}
+
 std::optional<Point> GetAutomapMarkerTile()
 {
 	if (!IsMarkerOnThisLevel())

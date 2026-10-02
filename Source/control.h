@@ -150,6 +150,12 @@ void ClearAutomapMarker();
 void AnnounceAutomapMarker();
 
 /**
+ * @brief The player marked with /pos, when they're on this level, so the automap can place the marker exactly as it
+ * places their arrow.
+ */
+std::optional<size_t> GetAutomapMarkedPlayer();
+
+/**
  * @brief The tile marked with /pos on this level: a fixed tile, or where the marked monster or object is now.
  */
 std::optional<Point> GetAutomapMarkerTile();
