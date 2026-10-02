@@ -594,9 +594,34 @@ std::string TextCmdPos(const string_view parameter)
 		Marker = std::nullopt;
 		return std::string(_("Automap marker cleared."));
 	}
+	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>:<target> or /pos off."));
+	// A target on any level, written like the end of a seed code ("16:m59", "s5:m40", "9:68,76"), or a whole code.
+	if (parameter.find(':') != string_view::npos) {
+		string_view code = parameter;
+		const size_t dash = code.find('-');
+		if (dash != string_view::npos) {
+			const string_view seedText = code.substr(0, dash);
+			if (seedText != std::to_string(sgGameInitInfo.dwSeed))
+				return fmt::format(fmt::runtime(_("That code is for game seed {:s}; this game's seed is {:d}.")), seedText, sgGameInitInfo.dwSeed);
+			code.remove_prefix(dash + 1);
+		}
+		if (!SetAutomapMarkerFromCode(code))
+			return usage;
+		if (IsMarkerOnThisLevel())
+			return GetAutomapMarkerText();
+		const string_view target = code.substr(code.find(':') + 1);
+		std::string level = fmt::format(fmt::runtime(_("dungeon level {:d}")), Marker->level);
+		if (Marker->isSetLevel) {
+			for (const Quest &quest : Quests) {
+				if (quest._qslvl == Marker->level)
+					level = std::string(_(QuestsData[quest._qidx]._qlstr));
+			}
+		}
+		return fmt::format(fmt::runtime(_("Marked {:s} on {:s}. The automap shows the way there.")), target, level);
+	}
 	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
 	if (!marker)
-		return std::string(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number> or /pos off."));
+		return usage;
 	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index))
 		return fmt::format(fmt::runtime(_("There is no m{:d} on this level.")), marker->index);
 	if (marker->kind == PositionMarker::Kind::Object && !IsActiveObject(marker->index))
@@ -611,7 +636,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/pos"), N_("Shows your tile, or marks a tile, monster or object on the automap."), N_("[<x>,<y> | m<number> | o<number> | off]"), &TextCmdPos },
+	{ N_("/pos"), N_("Shows your tile, or marks a tile, monster or object on the automap."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
