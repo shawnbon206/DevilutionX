@@ -885,6 +885,61 @@ std::string LevelContents()
 }
 
 // If levels come out the same on every difficulty, each level only has to be generated once.
+// The game's own LoadGameLevel, entered the way interfac.cpp does for stairs down (WM_DIABNEXTLVL) and for
+// a quest entrance or Lazarus' red portal (WM_DIABSETLVL), with the quest's dungeon level loaded first.
+void LoadLevelLikeTheGame(LevelId level)
+{
+	const bool headless = HeadlessMode;
+	const bool music = gbMusicOn;
+	HeadlessMode = true;
+	gbMusicOn = false;
+	if (level.setLevel == SL_NONE) {
+		setlevel = false;
+		currlevel = level.dlvl;
+		leveltype = GetLevelType(currlevel);
+		MyPlayer->setLevel(currlevel);
+		LoadGameLevel(false, ENTRY_MAIN);
+	} else {
+		Quest &quest = Quests[GetSetLevelQuest(level.setLevel).quest];
+		setlevel = false;
+		currlevel = quest._qlevel;
+		leveltype = GetLevelType(currlevel);
+		MyPlayer->setLevel(currlevel);
+		LoadGameLevel(false, ENTRY_MAIN);
+		if (level.setLevel == SL_VILEBETRAYER && quest._qactive == QUEST_INIT) {
+			quest._qactive = QUEST_ACTIVE;
+			quest._qvar1 = 3;
+		}
+		setlvlnum = level.setLevel;
+		setlvltype = quest._qlvltype;
+		setlevel = true;
+		leveltype = setlvltype;
+		currlevel = static_cast<uint8_t>(setlvlnum);
+		MyPlayer->setLevel(level.setLevel);
+		LoadGameLevel(false, ENTRY_SETLVL);
+	}
+	HeadlessMode = headless;
+	gbMusicOn = music;
+}
+
+TEST_F(DropStats, GenerationMatchesTheGame)
+{
+	size_t levels = 0;
+	for (uint32_t gameSeed : { 42u, 1791094559u }) {
+		StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+		for (LevelId level : ReachableLevels()) {
+			StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+			GenerateLevel(level);
+			const std::string simulated = LevelContents();
+			StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+			LoadLevelLikeTheGame(level);
+			EXPECT_EQ(LevelContents(), simulated) << "seed " << gameSeed << " " << LevelName(level);
+			levels++;
+		}
+	}
+	std::cout << "compared " << levels << " levels with the game's LoadGameLevel\n";
+}
+
 TEST_F(DropStats, LevelsAreTheSameOnEveryDifficulty)
 {
 	const QuestSettings settingsToCheck[] = { { true, true }, { true, false }, { false, true } };

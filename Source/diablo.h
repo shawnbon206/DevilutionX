@@ -94,7 +94,7 @@ void diablo_focus_pause();
 void diablo_focus_unpause();
 bool PressEscKey();
 void DisableInputEventHandler(const SDL_Event &event, uint16_t modState);
-void LoadGameLevel(bool firstflag, lvl_entry lvldir);
+DVL_API_FOR_TEST void LoadGameLevel(bool firstflag, lvl_entry lvldir);
 bool IsDiabloAlive(bool playSFX);
 void PrintScreen(SDL_Keycode vkey);
 
