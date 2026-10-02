@@ -660,7 +660,7 @@ uint8_t ClosestPaletteColor(SDL_Color color)
 }
 
 /**
- * @brief Renders the /pos marker: a small white diamond with a cross through it. White because the automap
+ * @brief Renders the /pos marker: a small white diamond. White because the automap
  * already uses yellow, orange, blue and red, and Diablo's palettes have no green.
  */
 void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile)
@@ -688,8 +688,6 @@ void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, P
 	DrawMapLineSE(out, left, AmLine(4), color);
 	DrawMapLineSE(out, top, AmLine(4), color);
 	DrawMapLineNE(out, bottom, AmLine(4), color);
-	DrawHorizontalLine(out, left, 2 * AmLine(8) + 1, color);
-	DrawVerticalLine(out, top, 2 * AmLine(4) + 1, color);
 }
 
 /**
