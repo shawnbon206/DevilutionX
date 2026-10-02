@@ -156,6 +156,12 @@ void AnnounceAutomapMarker();
 std::optional<size_t> GetAutomapMarkedPlayer();
 
 /**
+ * @brief The monster marked with /pos, when it's alive on this level, so the automap can move the marker with it
+ * through each step as it moves the player arrows.
+ */
+std::optional<size_t> GetAutomapMarkedMonster();
+
+/**
  * @brief The tile marked with /pos on this level: a fixed tile, or where the marked monster or object is now.
  */
 std::optional<Point> GetAutomapMarkerTile();
