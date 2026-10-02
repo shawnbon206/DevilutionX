@@ -786,12 +786,17 @@ std::vector<Point> GetAutomapWaypoints()
 		return waypoints;
 	}
 	if (leveltype == DTYPE_TOWN) {
-		// The cathedral entrance or the unlocked town warp that gets deepest without passing the marked level.
+		// The cathedral entrance or unlocked town warp that leaves the fewest levels to walk, up or down
+		// (for dlvl 8, the caves warp and one level up); on a tie, the shallower one.
 		int best = -1;
 		int bestLevel = 0;
 		for (int i = 0; i < numtrigs; i++) {
 			const int leadsTo = trigs[i]._tmsg == WM_DIABNEXTLVL ? 1 : (trigs[i]._tmsg == WM_DIABTOWNWARP ? trigs[i]._tlvl : 0);
-			if (leadsTo > bestLevel && leadsTo <= routeLevel) {
+			if (leadsTo == 0)
+				continue;
+			const int distance = std::abs(leadsTo - routeLevel);
+			const int bestDistance = std::abs(bestLevel - routeLevel);
+			if (best < 0 || distance < bestDistance || (distance == bestDistance && leadsTo < bestLevel)) {
 				best = i;
 				bestLevel = leadsTo;
 			}
