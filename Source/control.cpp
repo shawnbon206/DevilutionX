@@ -788,6 +788,7 @@ std::vector<Point> GetAutomapWaypoints()
 	// A marked quest level is reached through its entrance on a dungeon level; head for that level first.
 	int routeLevel = Marker->level;
 	const Quest *entrance = nullptr;
+	bool needsLazarusStaff = false;
 	if (Marker->isSetLevel) {
 		for (const Quest &quest : Quests) {
 			if (quest._qslvl == Marker->level && quest._qactive != QUEST_NOTAVAIL) {
@@ -797,6 +798,13 @@ std::vector<Point> GetAutomapWaypoints()
 		}
 		if (entrance == nullptr)
 			return waypoints;
+		// Lazarus' portal opens only once Cain has the Staff of Lazarus: first the staff on its stand, then Cain.
+		if (entrance->_qidx == Q_BETRAYER && entrance->_qactive == QUEST_INIT) {
+			if (HasInventoryOrBeltItemWithId(*MyPlayer, IDI_LAZSTAFF) || MyPlayer->HoldItem.IDidx == IDI_LAZSTAFF)
+				routeLevel = 0;
+			else
+				needsLazarusStaff = true;
+		}
 	}
 
 	auto addTriggers = [&waypoints](interface_mode message) {
@@ -808,6 +816,31 @@ std::vector<Point> GetAutomapWaypoints()
 
 	if (setlevel) {
 		addTriggers(WM_DIABRTNLVL);
+		return waypoints;
+	}
+	if (currlevel == routeLevel) {
+		if (routeLevel == 0) {
+			// The staff goes to Cain.
+			for (const Towner &towner : Towners) {
+				if (towner._ttype == TOWN_STORY)
+					waypoints.push_back(towner.position);
+			}
+		} else if (needsLazarusStaff) {
+			// The staff where it lies, or else its stand if it hasn't been taken yet.
+			for (uint8_t i = 0; i < ActiveItemCount; i++) {
+				if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
+					waypoints.push_back(Items[ActiveItems[i]].position);
+			}
+			if (waypoints.empty()) {
+				for (int i = 0; i < ActiveObjectCount; i++) {
+					const Object &object = Objects[ActiveObjects[i]];
+					if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
+						waypoints.push_back(object.position);
+				}
+			}
+		} else if (entrance != nullptr) {
+			waypoints.push_back(entrance->position);
+		}
 		return waypoints;
 	}
 	if (leveltype == DTYPE_TOWN) {
@@ -828,11 +861,6 @@ std::vector<Point> GetAutomapWaypoints()
 		}
 		if (best >= 0)
 			waypoints.push_back(trigs[best].position);
-		return waypoints;
-	}
-	if (currlevel == routeLevel) {
-		if (entrance != nullptr)
-			waypoints.push_back(entrance->position);
 		return waypoints;
 	}
 	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
