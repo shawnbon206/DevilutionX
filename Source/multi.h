@@ -45,7 +45,7 @@ struct GameInfo {
 
 extern bool gbSomebodyWonGameKludge;
 extern uint16_t sgwPackPlrOffsetTbl[MAX_PLRS];
-extern uint8_t gbActivePlayers;
+extern DVL_API_FOR_TEST uint8_t gbActivePlayers;
 extern bool gbGameDestroyed;
 extern DVL_API_FOR_TEST GameData sgGameInitInfo;
 extern bool gbSelectProvider;

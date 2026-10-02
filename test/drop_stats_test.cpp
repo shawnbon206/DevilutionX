@@ -83,6 +83,10 @@ void StartMultiplayerGame(uint32_t gameSeed, _difficulty difficulty)
 	MyPlayer = &Players[0];
 
 	gbIsMultiplayer = true;
+	// The host is in the game (NetInit). ClrAllMonsters draws GenerateRnd(gbActivePlayers) for every monster
+	// slot, and with 0 players that draws nothing: set levels, which are built straight after their seed is
+	// set, would come out 200 random numbers early.
+	gbActivePlayers = 1;
 	sgGameInitInfo.dwSeed = gameSeed;
 	sgGameInitInfo.nDifficulty = difficulty;
 	sgGameInitInfo.fullQuests = Settings.fullQuests ? 1 : 0;
@@ -920,6 +924,35 @@ void LoadLevelLikeTheGame(LevelId level)
 	}
 	HeadlessMode = headless;
 	gbMusicOn = music;
+}
+
+// Drops seen in a real game (seed 1791094559, Normal, Full quests and Randomize Quests on). The level tests
+// compare the simulator with the game's own code inside this test, so a setting both get wrong goes unnoticed;
+// these come from outside it.
+TEST_F(DropStats, MatchesDropsSeenInTheGame)
+{
+	struct Seen {
+		LevelId level;
+		int sourceIndex;
+		const char *name;
+	};
+	const Seen seen[] = {
+		{ { 1 }, 32, "Bronze Bow of weakness" },
+		{ { 14 }, 48, "Breast Plate of vigor" },
+		{ { 15, SL_VILEBETRAYER }, 40, "Blessed Mail of the ages" },
+		{ { 15, SL_VILEBETRAYER }, 41, "Master's Short Sword" },
+		{ { 15, SL_VILEBETRAYER }, 42, "Field Plate of the ages" },
+	};
+	for (const Seen &expected : seen) {
+		StartMultiplayerGame(1791094559u, DIFF_NORMAL);
+		GenerateLevel(expected.level);
+		std::vector<std::string> names;
+		for (const Drop &drop : DryRunLevelDrops()) {
+			if (drop.sourceIndex == expected.sourceIndex)
+				names.emplace_back(drop.item._iIName);
+		}
+		EXPECT_NE(std::find(names.begin(), names.end(), expected.name), names.end()) << LevelName(expected.level) << " source " << expected.sourceIndex << " should drop " << expected.name;
+	}
 }
 
 TEST_F(DropStats, GenerationMatchesTheGame)
