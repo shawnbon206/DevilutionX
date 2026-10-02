@@ -596,8 +596,7 @@ void selgame_Seed_Init()
 	vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Enter Game Seed").data(), rect4, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
 
 	SDL_Rect rect5 = { (Sint16)(uiPosition.x + 305), (Sint16)(uiPosition.y + 314), 285, 33 };
-	// A seed code is up to 19 characters; in the large font only about 13 fit and the rest wraps out of sight.
-	vecSelGameDialog.push_back(std::make_unique<UiEdit>(_("Enter Game Seed"), selgame_Seed, sizeof(selgame_Seed) - 1, true, rect5, UiFlags::FontSize12 | UiFlags::ColorUiGold | UiFlags::VerticalCenter));
+	vecSelGameDialog.push_back(std::make_unique<UiEdit>(_("Enter Game Seed"), selgame_Seed, sizeof(selgame_Seed) - 1, true, rect5, UiFlags::FontSize24 | UiFlags::ColorUiGold));
 
 	SDL_Rect rect6 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 427), 140, 35 };
 	vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("OK"), &UiFocusNavigationSelect, rect6, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
