@@ -39,7 +39,7 @@ with a code to paste into the patched game's Enter Game Seed box. Runs until Ctr
 HELP_EXAMPLES = """\
 examples:
   drops.ps1 --type ring amulet --prefix Obsidian Gold "Dragon's" --suffix life "the zodiac" --min-roll 80
-  drops.ps1 --base Maul "Great Axe" --prefix "King's" --suffix haste --difficulty hell --minutes 30
+  drops.ps1 --base Maul "Great Axe" --prefix "King's" --suffix haste --minutes 30
   drops.ps1 --unique "Harlequin Crest" --workers 10
 
 Names are not case-sensitive; quote names with spaces or apostrophes. "of " in suffixes is optional.
@@ -74,7 +74,6 @@ def parse_args():
     wishlist.description = 'A prefix or suffix can carry its own minimum for the first number it shows: Obsidian:38.'
 
     games = parser.add_argument_group('game settings', 'The host has to create the game with these settings.')
-    games.add_argument('--difficulty', nargs='+', default=[], metavar='LEVEL', help='normal nightmare hell, or 1 2 3 (default: all)')
     games.add_argument('--full-quests', choices=['on', 'off', '1', '0'], default='on', metavar='on|off',
                        help='Full quests in Multiplayer (default on)')
     games.add_argument('--randomize-quests', choices=['on', 'off', '1', '0'], default='on', metavar='on|off',
@@ -89,11 +88,6 @@ def parse_args():
     args = parser.parse_args()
     args.full_quests = args.full_quests in ('on', '1')
     args.randomize_quests = args.randomize_quests in ('on', '1')
-    difficulties = {'normal': 0, 'nightmare': 1, 'hell': 2, '1': 0, '2': 1, '3': 2}
-    for name in args.difficulty:
-        if name.lower() not in difficulties:
-            parser.error(f'unknown difficulty "{name}": use normal, nightmare, hell, or 1, 2, 3')
-    args.difficulty = {difficulties[name.lower()] for name in args.difficulty}
     if not (args.type or args.base or args.prefix or args.suffix or args.unique):
         parser.error('give at least one of --type, --base, --prefix, --suffix, --unique')
     if args.workers < 1:
@@ -143,12 +137,9 @@ class Wishlist:
             self.suffixes[name[3:] if name.startswith('of ') else name] = minimum
         self.uniques = set(lower(args.unique))
         self.either = args.either
-        self.difficulties = args.difficulty
         self.min_roll = args.min_roll
 
     def matches(self, row):
-        if self.difficulties and int(row['difficulty']) not in self.difficulties:
-            return False
         if self.types and row['item_type'] not in self.types:
             return False
         if self.bases and row['base_item'].lower() not in self.bases:
@@ -343,8 +334,6 @@ def main():
 
     print(f'\nSearched {seeds_done:,} seeds, games created {short_time(first_seed)} to {short_time(last_seed)}')
     for difficulty in range(3):
-        if args.difficulty and difficulty not in args.difficulty:
-            continue
         matching = sum(1 for k in hits if k[1] == difficulty)
         odds = f'1 in {searched[difficulty] / matching:,.0f}' if matching else 'none'
         print(f'  {DIFFICULTIES[difficulty]:<11}{matching:>8,} of {searched[difficulty]:,} games   {odds}')

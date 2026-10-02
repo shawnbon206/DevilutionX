@@ -865,6 +865,77 @@ TEST_F(DropStats, GenerateLevelIsDeterministic)
 	}
 }
 
+// Everything a level holds before anything is killed or opened, as text to compare.
+std::string LevelContents()
+{
+	std::string contents;
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		contents += fmt::format("m{} {} {},{} {}\n", ActiveMonsters[i], static_cast<int>(monster.type().type), monster.position.tile.x, monster.position.tile.y, monster.rndItemSeed);
+	}
+	for (int i = 0; i < ActiveObjectCount; i++) {
+		const Object &object = Objects[ActiveObjects[i]];
+		contents += fmt::format("o{} {} {},{} {} {} {} {}\n", ActiveObjects[i], static_cast<int>(object._otype), object.position.x, object.position.y, object._oRndSeed, object._oVar1, object._oVar2, object._oVar3);
+	}
+	for (uint8_t k = 0; k < ActiveItemCount; k++) {
+		const Item &item = Items[ActiveItems[k]];
+		contents += fmt::format("i {} {},{} {}\n", static_cast<int>(item.IDidx), item.position.x, item.position.y, item._iSeed);
+	}
+	return contents;
+}
+
+// If levels come out the same on every difficulty, each level only has to be generated once.
+TEST_F(DropStats, LevelsAreTheSameOnEveryDifficulty)
+{
+	const QuestSettings settingsToCheck[] = { { true, true }, { true, false }, { false, true } };
+	size_t levels = 0;
+	for (const QuestSettings &settings : settingsToCheck) {
+		Settings = settings;
+		for (uint32_t gameSeed : { 1u, 42u, 123456789u, 987654321u, 1790867798u }) {
+			StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+			for (LevelId level : ReachableLevels()) {
+				StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+				GenerateLevel(level);
+				const std::string normal = LevelContents();
+				for (_difficulty difficulty : { DIFF_NIGHTMARE, DIFF_HELL }) {
+					StartMultiplayerGame(gameSeed, difficulty);
+					GenerateLevel(level);
+					EXPECT_EQ(LevelContents(), normal) << "seed " << gameSeed << " " << LevelName(level) << " difficulty " << difficulty;
+				}
+				levels++;
+			}
+		}
+	}
+	Settings = {};
+	std::cout << "compared " << levels << " levels across the three difficulties\n";
+}
+
+// The search generates a level on Normal and switches the difficulty only to work out the drops; that has to
+// give the same drops as generating the level on that difficulty.
+TEST_F(DropStats, SwitchingDifficultyAfterGenerationGivesTheSameDrops)
+{
+	size_t drops = 0;
+	for (uint32_t gameSeed : { 1u, 42u, 1790867798u }) {
+		StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+		for (LevelId level : ReachableLevels()) {
+			for (_difficulty difficulty : { DIFF_NIGHTMARE, DIFF_HELL }) {
+				StartMultiplayerGame(gameSeed, difficulty);
+				GenerateLevel(level);
+				const std::vector<Drop> generatedOnDifficulty = DryRunLevelDrops();
+
+				StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+				GenerateLevel(level);
+				sgGameInitInfo.nDifficulty = difficulty;
+				const std::vector<Drop> switched = DryRunLevelDrops();
+
+				EXPECT_EQ(GroupBySource(switched), GroupBySource(generatedOnDifficulty)) << "seed " << gameSeed << " " << LevelName(level) << " difficulty " << difficulty;
+				drops += switched.size();
+			}
+		}
+	}
+	std::cout << "compared " << drops << " drops\n";
+}
+
 TEST_F(DropStats, DryRunMatchesRealDrops)
 {
 	const uint32_t gameSeeds[] = { 1, 42, 123456789, 987654321 };
@@ -1113,19 +1184,21 @@ TEST_F(DropStats, SearchWorker)
 		seedStarted = std::chrono::steady_clock::now().time_since_epoch().count();
 		const auto gameSeed = static_cast<uint32_t>(seed);
 		std::string rows;
-		for (_difficulty difficulty : { DIFF_NORMAL, DIFF_NIGHTMARE, DIFF_HELL }) {
-			StartMultiplayerGame(gameSeed, difficulty);
-			const std::vector<LevelId> levels = ReachableLevels();
-			std::string skipped;
-			for (LevelId level : levels) {
-				if (isSkipped(seed, level)) {
-					skipped += (skipped.empty() ? "" : ";") + LevelName(level);
-					continue;
-				}
-				currentDlvl = level.dlvl;
-				currentSetLevel = level.setLevel;
-				StartMultiplayerGame(gameSeed, difficulty);
-				GenerateLevel(level);
+		std::string skipped;
+		StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+		for (LevelId level : ReachableLevels()) {
+			if (isSkipped(seed, level)) {
+				skipped += (skipped.empty() ? "" : ";") + LevelName(level);
+				continue;
+			}
+			currentDlvl = level.dlvl;
+			currentSetLevel = level.setLevel;
+			// A level is the same on every difficulty (LevelsAreTheSameOnEveryDifficulty); only the drops differ,
+			// so it is generated once and its drops worked out for each difficulty.
+			StartMultiplayerGame(gameSeed, DIFF_NORMAL);
+			GenerateLevel(level);
+			for (_difficulty difficulty : { DIFF_NORMAL, DIFF_NIGHTMARE, DIFF_HELL }) {
+				sgGameInitInfo.nDifficulty = difficulty;
 				for (const Drop &drop : DryRunLevelDrops()) {
 					if (drop.item._iMagical == ITEM_QUALITY_NORMAL)
 						continue;
@@ -1133,8 +1206,9 @@ TEST_F(DropStats, SearchWorker)
 					rows += ItemCsvRow(gameSeed, difficulty, level, drop);
 				}
 			}
-			rows += fmt::format("G,{},{},{}\n", gameSeed, static_cast<int>(difficulty), CsvField(skipped));
 		}
+		for (_difficulty difficulty : { DIFF_NORMAL, DIFF_NIGHTMARE, DIFF_HELL })
+			rows += fmt::format("G,{},{},{}\n", gameSeed, static_cast<int>(difficulty), CsvField(skipped));
 		std::fwrite(rows.data(), 1, rows.size(), stdout);
 		std::fflush(stdout);
 		// The search reading the pipe is gone (closed window, killed process), so stop instead of running on unseen.
