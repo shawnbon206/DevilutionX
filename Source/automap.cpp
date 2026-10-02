@@ -6,6 +6,7 @@
 #include "automap.h"
 
 #include <cstdint>
+#include <limits>
 
 #include <fmt/format.h>
 
@@ -638,7 +639,29 @@ void SearchAutomapItem(const Surface &out, const Displacement &myPlayerOffset, i
 }
 
 /**
- * @brief Renders the /pos marker: a diamond with a cross through it, larger than the item marks.
+ * @brief The palette entry closest to a color.
+ */
+uint8_t ClosestPaletteColor(SDL_Color color)
+{
+	uint8_t best = 0;
+	int bestDistance = std::numeric_limits<int>::max();
+	for (int i = 0; i < 256; i++) {
+		const SDL_Color &entry = logical_palette[i];
+		const int red = entry.r - color.r;
+		const int green = entry.g - color.g;
+		const int blue = entry.b - color.b;
+		const int distance = red * red + green * green + blue * blue;
+		if (distance < bestDistance) {
+			bestDistance = distance;
+			best = static_cast<uint8_t>(i);
+		}
+	}
+	return best;
+}
+
+/**
+ * @brief Renders the /pos marker: a small white diamond with a cross through it. White because the automap
+ * already uses yellow, orange, blue and red, and Diablo's palettes have no green.
  */
 void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile)
 {
@@ -657,10 +680,16 @@ void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, P
 	}
 	screen.y -= AmLine(8);
 
-	constexpr uint8_t MarkerColor = PAL8_RED;
-	DrawDiamond(out, screen, MarkerColor);
-	DrawHorizontalLine(out, { screen.x - AmLine(16), screen.y }, 2 * AmLine(16) + 1, MarkerColor);
-	DrawVerticalLine(out, { screen.x, screen.y - AmLine(16) }, 2 * AmLine(16) + 1, MarkerColor);
+	const uint8_t color = ClosestPaletteColor({ 255, 255, 255, 255 });
+	const Point left { screen.x - AmLine(8), screen.y };
+	const Point top { screen.x, screen.y - AmLine(4) };
+	const Point bottom { screen.x, screen.y + AmLine(4) };
+	DrawMapLineNE(out, left, AmLine(4), color);
+	DrawMapLineSE(out, left, AmLine(4), color);
+	DrawMapLineSE(out, top, AmLine(4), color);
+	DrawMapLineNE(out, bottom, AmLine(4), color);
+	DrawHorizontalLine(out, left, 2 * AmLine(8) + 1, color);
+	DrawVerticalLine(out, top, 2 * AmLine(4) + 1, color);
 }
 
 /**
