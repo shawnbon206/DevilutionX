@@ -660,10 +660,11 @@ uint8_t ClosestPaletteColor(SDL_Color color)
 }
 
 /**
- * @brief Renders the /pos marker: a small white diamond. White because the automap
- * already uses yellow, orange, blue and red, and Diablo's palettes have no green.
+ * @brief Renders the /pos marker and its waypoints: a small white diamond, or for an errand on the way (the Staff of
+ * Lazarus) an A, the diamond's top half with a crossbar, like the staff's stand seen from the side. White because
+ * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green.
  */
-void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile)
+void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile, bool errand = false)
 {
 	const int px = tile.x - 2 * AutomapOffset.deltaX - ViewPosition.x;
 	const int py = tile.y - 2 * AutomapOffset.deltaY - ViewPosition.y;
@@ -684,6 +685,12 @@ void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, P
 	const Point left { screen.x - AmLine(8), screen.y };
 	const Point top { screen.x, screen.y - AmLine(4) };
 	const Point bottom { screen.x, screen.y + AmLine(4) };
+	if (errand) {
+		DrawMapLineNE(out, left, AmLine(4), color);
+		DrawMapLineSE(out, top, AmLine(4), color);
+		DrawHorizontalLine(out, { screen.x - AmLine(4), screen.y - AmLine(2) }, 2 * AmLine(4) + 1, color);
+		return;
+	}
 	DrawMapLineNE(out, left, AmLine(4), color);
 	DrawMapLineSE(out, left, AmLine(4), color);
 	DrawMapLineSE(out, top, AmLine(4), color);
@@ -1039,8 +1046,8 @@ void DrawAutomap(const Surface &out)
 	myPlayerOffset.deltaY -= TILE_HEIGHT / 2;
 	if (std::optional<Point> marked = GetAutomapMarkerTile())
 		DrawAutomapMarker(out, myPlayerOffset, *marked);
-	for (Point waypoint : GetAutomapWaypoints())
-		DrawAutomapMarker(out, myPlayerOffset, waypoint);
+	for (const AutomapWaypoint &waypoint : GetAutomapWaypoints())
+		DrawAutomapMarker(out, myPlayerOffset, waypoint.tile, waypoint.errand);
 	if (AutoMapShowItems)
 		SearchAutomapItem(out, myPlayerOffset, 8, [](Point position) { return dItem[position.x][position.y] != 0; });
 #ifdef _DEBUG

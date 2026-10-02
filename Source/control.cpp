@@ -782,9 +782,9 @@ bool SetAutomapMarkerFromCode(string_view levelAndTarget)
 	return true;
 }
 
-std::vector<Point> GetAutomapWaypoints()
+std::vector<AutomapWaypoint> GetAutomapWaypoints()
 {
-	std::vector<Point> waypoints;
+	std::vector<AutomapWaypoint> waypoints;
 	if (!Marker || IsMarkerOnThisLevel())
 		return waypoints;
 
@@ -805,7 +805,7 @@ std::vector<Point> GetAutomapWaypoints()
 	auto addTriggers = [&waypoints](interface_mode message) {
 		for (int i = 0; i < numtrigs; i++) {
 			if (trigs[i]._tmsg == message)
-				waypoints.push_back(trigs[i].position);
+				waypoints.push_back({ trigs[i].position });
 		}
 	};
 
@@ -815,18 +815,18 @@ std::vector<Point> GetAutomapWaypoints()
 	}
 	if (currlevel == routeLevel) {
 		if (entrance != nullptr)
-			waypoints.push_back(entrance->position);
+			waypoints.push_back({ entrance->position });
 		if (entrance != nullptr && entrance->_qidx == Q_BETRAYER) {
 			// Lazarus' portal opens there once Cain has the Staff of Lazarus, so the staff is marked too: its
 			// stand until it's taken, and the staff wherever it lies on this level.
 			for (int i = 0; i < ActiveObjectCount; i++) {
 				const Object &object = Objects[ActiveObjects[i]];
 				if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
-					waypoints.push_back(object.position);
+					waypoints.push_back({ object.position, true });
 			}
 			for (uint8_t i = 0; i < ActiveItemCount; i++) {
 				if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
-					waypoints.push_back(Items[ActiveItems[i]].position);
+					waypoints.push_back({ Items[ActiveItems[i]].position, true });
 			}
 		}
 		return waypoints;
@@ -875,7 +875,7 @@ std::vector<Point> GetAutomapWaypoints()
 			}
 		}
 		if (best)
-			waypoints.push_back(*best);
+			waypoints.push_back({ *best });
 		return waypoints;
 	}
 	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
