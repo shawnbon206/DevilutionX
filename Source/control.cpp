@@ -996,6 +996,13 @@ std::optional<size_t> GetAutomapMarkedPlayer()
 	return static_cast<size_t>(Marker->index);
 }
 
+std::optional<size_t> GetAutomapMarkedMonster()
+{
+	if (!IsMarkerOnThisLevel() || Marker->kind != PositionMarker::Kind::Monster || !GetAutomapMarkerTile())
+		return std::nullopt;
+	return static_cast<size_t>(Marker->index);
+}
+
 std::optional<Point> GetAutomapMarkerTile()
 {
 	if (!IsMarkerOnThisLevel())

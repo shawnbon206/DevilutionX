@@ -1049,6 +1049,12 @@ void DrawAutomap(const Surface &out)
 		const Point tile = player._pmode == PM_WALK_SIDEWAYS ? player.position.future : player.position.tile;
 		const Displacement walking = player.isWalking() ? GetOffsetForWalking(player.AnimInfo, player._pdir) : Displacement {};
 		DrawAutomapMarker(out, myPlayerOffset, tile, false, walking);
+	} else if (std::optional<size_t> markedMonster = GetAutomapMarkedMonster()) {
+		// The same way for a monster, which the game moves through its steps like a player.
+		const Monster &monster = Monsters[*markedMonster];
+		const Point tile = monster.mode == MonsterMode::MoveSideways ? monster.position.future : monster.position.tile;
+		const Displacement walking = monster.isWalking() ? GetOffsetForWalking(monster.animInfo, monster.direction) : Displacement {};
+		DrawAutomapMarker(out, myPlayerOffset, tile, false, walking);
 	} else if (std::optional<Point> marked = GetAutomapMarkerTile()) {
 		DrawAutomapMarker(out, myPlayerOffset, *marked);
 	}
