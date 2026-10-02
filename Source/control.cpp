@@ -833,9 +833,12 @@ std::vector<Point> GetAutomapWaypoints()
 	}
 	if (leveltype == DTYPE_TOWN) {
 		// The cathedral entrance, unlocked town warp or open town portal that leaves the fewest levels to walk, up
-		// or down (for dlvl 8, the caves warp and one level up). On a tie a town portal wins, since it was opened
-		// partway into its level; otherwise the shallower one.
+		// or down (for dlvl 8, the caves warp and one level up). A portal into the marked quest level itself beats
+		// everything. On a tie a town portal wins, since it was opened partway into its level, and your own portal
+		// over another player's; between stairs and warps, the shallower one.
 		std::optional<Point> best;
+		bool bestIsPortal = false;
+		bool bestIsMine = false;
 		int bestDistance = std::numeric_limits<int>::max();
 		int bestLevel = 0;
 		for (int i = 0; i < numtrigs; i++) {
@@ -856,13 +859,19 @@ std::vector<Point> GetAutomapWaypoints()
 			if (!portal.open)
 				continue;
 			int distance;
-			if (portal.setlvl)
-				distance = Marker->isSetLevel && portal.level == Marker->level ? 0 : std::numeric_limits<int>::max();
-			else
+			if (portal.setlvl) {
+				if (!Marker->isSetLevel || portal.level != Marker->level)
+					continue;
+				distance = -1;
+			} else {
 				distance = std::abs(portal.level - routeLevel);
-			if (distance <= bestDistance && distance != std::numeric_limits<int>::max()) {
+			}
+			const bool isMine = missile._misource == MyPlayerId;
+			if (distance < bestDistance || (distance == bestDistance && (!bestIsPortal || (isMine && !bestIsMine)))) {
 				best = missile.position.tile;
 				bestDistance = distance;
+				bestIsPortal = true;
+				bestIsMine = isMine;
 			}
 		}
 		if (best)
