@@ -9,6 +9,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 
 #include <fmt/format.h>
@@ -41,6 +43,7 @@
 #include "panels/spell_icons.hpp"
 #include "panels/spell_list.hpp"
 #include "playerdat.hpp"
+#include "portal.h"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
 #include "quests.h"
@@ -829,23 +832,41 @@ std::vector<Point> GetAutomapWaypoints()
 		return waypoints;
 	}
 	if (leveltype == DTYPE_TOWN) {
-		// The cathedral entrance or unlocked town warp that leaves the fewest levels to walk, up or down
-		// (for dlvl 8, the caves warp and one level up); on a tie, the shallower one.
-		int best = -1;
+		// The cathedral entrance, unlocked town warp or open town portal that leaves the fewest levels to walk, up
+		// or down (for dlvl 8, the caves warp and one level up). On a tie a town portal wins, since it was opened
+		// partway into its level; otherwise the shallower one.
+		std::optional<Point> best;
+		int bestDistance = std::numeric_limits<int>::max();
 		int bestLevel = 0;
 		for (int i = 0; i < numtrigs; i++) {
 			const int leadsTo = trigs[i]._tmsg == WM_DIABNEXTLVL ? 1 : (trigs[i]._tmsg == WM_DIABTOWNWARP ? trigs[i]._tlvl : 0);
 			if (leadsTo == 0)
 				continue;
 			const int distance = std::abs(leadsTo - routeLevel);
-			const int bestDistance = std::abs(bestLevel - routeLevel);
-			if (best < 0 || distance < bestDistance || (distance == bestDistance && leadsTo < bestLevel)) {
-				best = i;
+			if (distance < bestDistance || (distance == bestDistance && leadsTo < bestLevel)) {
+				best = trigs[i].position;
+				bestDistance = distance;
 				bestLevel = leadsTo;
 			}
 		}
-		if (best >= 0)
-			waypoints.push_back(trigs[best].position);
+		for (const Missile &missile : Missiles) {
+			if (missile._mitype != MissileID::TownPortal || missile._misource < 0 || missile._misource >= MAXPORTAL)
+				continue;
+			const Portal &portal = Portals[missile._misource];
+			if (!portal.open)
+				continue;
+			int distance;
+			if (portal.setlvl)
+				distance = Marker->isSetLevel && portal.level == Marker->level ? 0 : std::numeric_limits<int>::max();
+			else
+				distance = std::abs(portal.level - routeLevel);
+			if (distance <= bestDistance && distance != std::numeric_limits<int>::max()) {
+				best = missile.position.tile;
+				bestDistance = distance;
+			}
+		}
+		if (best)
+			waypoints.push_back(*best);
 		return waypoints;
 	}
 	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
