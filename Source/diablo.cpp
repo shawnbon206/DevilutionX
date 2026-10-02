@@ -70,7 +70,6 @@
 #include "qol/floatingnumbers.h"
 #include "qol/itemlabels.h"
 #include "qol/monhealthbar.h"
-#include "qol/player_tracking.h"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
 #include "restrict.h"
@@ -1437,7 +1436,6 @@ void GameLogic()
 	sound_update();
 	CheckTriggers();
 	CheckQuests();
-	UpdatePlayerTracking();
 	RedrawViewport();
 	pfile_update(false);
 
@@ -2386,7 +2384,6 @@ bool StartGame(bool bNewGame, bool bSinglePlayer)
 
 		gbSelectProvider = false;
 
-		ResetPlayerTracking();
 		if (bNewGame || !gbValidSaveFile) {
 			InitLevels();
 			InitQuests();
