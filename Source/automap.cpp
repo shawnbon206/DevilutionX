@@ -642,9 +642,11 @@ void SearchAutomapItem(const Surface &out, const Displacement &myPlayerOffset, i
  */
 void DrawAutomapPlr(const Surface &out, const Displacement &myPlayerOffset, int playerId)
 {
-	int playerColor = MapColorsPlayer + (8 * playerId) % 128;
-
 	Player &player = Players[playerId];
+	// Hostile players are drawn too, in red like their names.
+	const bool hostile = &player != MyPlayer && !player.friendlyMode;
+	int playerColor = hostile ? PAL8_RED : MapColorsPlayer + (8 * playerId) % 128;
+
 	Point tile = player.position.tile;
 	if (player._pmode == PM_WALK_SIDEWAYS) {
 		tile = player.position.future;
@@ -976,7 +978,7 @@ void DrawAutomap(const Surface &out)
 		myPlayerOffset.deltaY += TILE_HEIGHT;
 	for (size_t playerId = 0; playerId < Players.size(); playerId++) {
 		Player &player = Players[playerId];
-		if (player.isOnActiveLevel() && player.plractive && !player._pLvlChanging && (&player == MyPlayer || player.friendlyMode)) {
+		if (player.isOnActiveLevel() && player.plractive && !player._pLvlChanging) {
 			DrawAutomapPlr(out, myPlayerOffset, playerId);
 		}
 	}
