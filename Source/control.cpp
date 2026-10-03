@@ -885,22 +885,38 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 		addTriggers(WM_DIABRTNLVL);
 		return waypoints;
 	}
+	// Both ways on from dlvl 15 (Lazarus' portal, and the pentagram down to Diablo) open only after the Staff of Lazarus
+	// is dealt with, so on the way through, the staff is marked too, as an errand: its stand while the staff is on
+	// it, or the staff wherever it lies on this level.
+	auto addLazarusStaff = [&waypoints]() {
+		for (int i = 0; i < ActiveObjectCount; i++) {
+			const Object &object = Objects[ActiveObjects[i]];
+			if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
+				waypoints.push_back({ object.position, true });
+		}
+		for (uint8_t i = 0; i < ActiveItemCount; i++) {
+			if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
+				waypoints.push_back({ Items[ActiveItems[i]].position, true });
+		}
+	};
+
 	if (currlevel == routeLevel) {
 		if (entrance != nullptr)
 			waypoints.push_back({ entrance->position });
-		if (entrance != nullptr && entrance->_qidx == Q_BETRAYER) {
-			// Lazarus' portal opens there once Cain has the Staff of Lazarus, so the staff is marked too: its
-			// stand until it's taken, and the staff wherever it lies on this level.
-			for (int i = 0; i < ActiveObjectCount; i++) {
-				const Object &object = Objects[ActiveObjects[i]];
-				if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
-					waypoints.push_back({ object.position, true });
-			}
-			for (uint8_t i = 0; i < ActiveItemCount; i++) {
-				if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
-					waypoints.push_back({ Items[ActiveItems[i]].position, true });
+		if (entrance != nullptr && entrance->_qidx == Q_BETRAYER)
+			addLazarusStaff();
+		return waypoints;
+	}
+	if (currlevel == 15 && routeLevel == 16) {
+		// The way down is the pentagram, which becomes stairs only once Lazarus is dead (InitL4Triggers); it's
+		// marked either way.
+		for (int j = 0; j < MAXDUNY; j++) {
+			for (int i = 0; i < MAXDUNX; i++) {
+				if (dPiece[i][j] == 369)
+					waypoints.push_back({ { i, j } });
 			}
 		}
+		addLazarusStaff();
 		return waypoints;
 	}
 	if (leveltype == DTYPE_TOWN) {
@@ -963,16 +979,6 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 		return waypoints;
 	}
 	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
-	if (waypoints.empty() && currlevel < routeLevel && leveltype == DTYPE_HELL) {
-		// The way down from dlvl 15 is the pentagram, which only becomes stairs once Lazarus is dead
-		// (InitL4Triggers); mark it anyway, so it's clear where the way down will be.
-		for (int j = 0; j < MAXDUNY; j++) {
-			for (int i = 0; i < MAXDUNX; i++) {
-				if (dPiece[i][j] == 369)
-					waypoints.push_back({ { i, j } });
-			}
-		}
-	}
 	return waypoints;
 }
 
