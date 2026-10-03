@@ -963,6 +963,16 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 		return waypoints;
 	}
 	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
+	if (waypoints.empty() && currlevel < routeLevel && leveltype == DTYPE_HELL) {
+		// The way down from dlvl 15 is the pentagram, which only becomes stairs once Lazarus is dead
+		// (InitL4Triggers); mark it anyway, so it's clear where the way down will be.
+		for (int j = 0; j < MAXDUNY; j++) {
+			for (int i = 0; i < MAXDUNX; i++) {
+				if (dPiece[i][j] == 369)
+					waypoints.push_back({ { i, j } });
+			}
+		}
+	}
 	return waypoints;
 }
 
