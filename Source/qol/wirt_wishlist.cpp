@@ -453,6 +453,76 @@ bool WirtSells(string_view type)
 }
 
 /**
+ * The least an affix table entry adds to an item's price when its value is the lowest the wishlist allows: the game
+ * prices an affix by where the value its power rolled sits in the power's range (PLVal in SaveItemAffix), the same
+ * whole percentage --min-roll is judged by. (King's prices only its damage; its to-hit is free.)
+ */
+int CheapestAffixPrice(const PLStruct &affix, std::optional<int> minRoll, std::optional<int> minimum)
+{
+	const int p1 = affix.power.param1;
+	const int p2 = affix.power.param2;
+	if (p1 >= p2 || affix.minVal == affix.maxVal)
+		return affix.minVal;
+	for (int value = p1; value <= p2; value++) {
+		const int percent = 100 * (value - p1) / (p2 - p1);
+		if ((minRoll && percent < *minRoll) || (minimum && value < *minimum))
+			continue;
+		return affix.minVal + (affix.maxVal - affix.minVal) * percent / 100;
+	}
+	return affix.maxVal;
+}
+
+/**
+ * The cheapest an item on the wishlist can cost: the price is the affixes' prices plus their multipliers times the base
+ * item's value (CalcItemValue), so it's the cheapest base Wirt can roll for you with each wanted affix at the lowest value
+ * allowed. Nothing when no base fits.
+ */
+std::optional<int> CheapestPrice(const Wishlist &wish, const std::vector<std::string> &sold, int level)
+{
+	// The least a place adds for a base: its cheapest wanted entry Wirt can roll on it; nothing when none can.
+	const auto slotPrice = [&](const std::vector<WantedAffix> &wanted, const PLStruct *table, AffixItemType kinds, int baseValue) -> std::optional<int> {
+		std::optional<int> best;
+		for (const WantedAffix &want : wanted) {
+			for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
+				const PLStruct &affix = table[j];
+				if (AsciiStrToLower(affix.PLName) != want.name || !HasAnyOf(affix.PLIType, kinds) || !affix.PLOk
+				    || affix.PLMinLvl < level || affix.PLMinLvl > 2 * level)
+					continue;
+				const int price = CheapestAffixPrice(affix, wish.minRoll, want.minimum) + std::max(affix.multVal, 0) * baseValue;
+				if (!best || price < *best)
+					best = price;
+			}
+		}
+		return best;
+	};
+
+	std::optional<int> cheapest;
+	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+		const ItemData &base = AllItemsList[j];
+		const std::string type(ItemTypeName(base.itype));
+		if (type.empty() || base.iRnd == IDROP_NEVER || base.iMinMLvl > level || std::find(sold.begin(), sold.end(), type) == sold.end())
+			continue;
+		if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(base.iName)) == wish.bases.end())
+			continue;
+		const AffixItemType kinds = AffixKindsFor(type);
+		const std::optional<int> prefix = wish.prefixes.empty() ? std::optional<int>(0) : slotPrice(wish.prefixes, ItemPrefixes, kinds, base.iValue);
+		const std::optional<int> suffix = wish.suffixes.empty() ? std::optional<int>(0) : slotPrice(wish.suffixes, ItemSuffixes, kinds, base.iValue);
+		std::optional<int> price;
+		if (wish.either && !wish.prefixes.empty() && !wish.suffixes.empty()) {
+			if (prefix && suffix)
+				price = std::min(*prefix, *suffix);
+			else
+				price = prefix ? prefix : suffix;
+		} else if (prefix && suffix) {
+			price = *prefix + *suffix;
+		}
+		if (price && (!cheapest || *price < *cheapest))
+			cheapest = price;
+	}
+	return cheapest;
+}
+
+/**
  * Why Wirt could never roll an item on this wishlist for you, or nothing if he can. He sells no staves, and no rings or
  * amulets in multiplayer; he only rolls affixes whose level is from your character level to twice it (SpawnBoy), and
  * only ones that aren't bad (onlygood).
@@ -507,9 +577,18 @@ std::string WhyImpossible(const Wishlist &wish)
 	};
 	const std::string prefixReason = wish.prefixes.empty() ? "" : slotReason(wish.prefixes, ItemPrefixes);
 	const std::string suffixReason = wish.suffixes.empty() ? "" : slotReason(wish.suffixes, ItemSuffixes);
-	if (wish.either && !wish.prefixes.empty() && !wish.suffixes.empty())
-		return !prefixReason.empty() && !suffixReason.empty() ? prefixReason : "";
-	return !prefixReason.empty() ? prefixReason : suffixReason;
+	if (wish.either && !wish.prefixes.empty() && !wish.suffixes.empty()) {
+		if (!prefixReason.empty() && !suffixReason.empty())
+			return prefixReason;
+	} else if (!prefixReason.empty() || !suffixReason.empty()) {
+		return !prefixReason.empty() ? prefixReason : suffixReason;
+	}
+
+	const std::optional<int> cheapest = CheapestPrice(wish, sold, level);
+	if (cheapest && *cheapest > MaxBoyValue) {
+		return fmt::format(fmt::runtime(_("The cheapest item on this wishlist costs {:d} gold; Wirt sells up to {:d}.")), *cheapest, MaxBoyValue);
+	}
+	return "";
 }
 
 } // namespace
