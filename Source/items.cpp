@@ -4381,7 +4381,9 @@ void SpawnBoy(int lvl)
 	dexterity += dexterity / 5;
 	magic += magic / 5;
 
-	if (boylevel >= (lvl / 2) && !boyitem.isEmpty())
+	// Wirt keeps his item until you've gained two levels or bought it; with a /wirt wishlist, one that doesn't fit it is
+	// rolled again each time you come to town, so a hunt that came up empty is tried again.
+	if (boylevel >= (lvl / 2) && !boyitem.isEmpty() && !(WirtWishlistActive() && !WirtWishlistMatches(boyitem)))
 		return;
 	RecheckWirtWishlist();
 	int wishlistTries = 0;
