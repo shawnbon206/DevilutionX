@@ -569,6 +569,29 @@ std::optional<size_t> FindPlayerByName(string_view name)
 	return std::nullopt;
 }
 
+/**
+ * The other players a typed name means, so names with characters that can't be typed can still be given: an exact
+ * name (any case), else those whose name starts with it, else those whose name contains it.
+ */
+std::vector<size_t> FindPlayersMatching(string_view text)
+{
+	if (const std::optional<size_t> exact = FindPlayerByName(text))
+		return { *exact };
+	const std::string wanted = AsciiStrToLower(text);
+	std::vector<size_t> starting;
+	std::vector<size_t> containing;
+	for (size_t id = 0; id < Players.size(); id++) {
+		if (!Players[id].plractive || &Players[id] == MyPlayer)
+			continue;
+		const std::string name = AsciiStrToLower(Players[id]._pName);
+		if (name.rfind(wanted, 0) == 0)
+			starting.push_back(id);
+		else if (name.find(wanted) != std::string::npos)
+			containing.push_back(id);
+	}
+	return !starting.empty() ? starting : containing;
+}
+
 bool IsMarkerOnThisLevel()
 {
 	if (Marker && Marker->kind == PositionMarker::Kind::Player) {
@@ -658,11 +681,17 @@ std::string TextCmdPos(const string_view parameter)
 	}
 	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
 	if (!marker) {
-		// Another player, by name: the automap shows the way to whatever level they're on.
-		const std::optional<size_t> id = FindPlayerByName(parameter);
-		if (!id)
+		// Another player, by name or part of it: the automap shows the way to whatever level they're on.
+		const std::vector<size_t> matches = FindPlayersMatching(parameter);
+		if (matches.empty())
 			return usage;
-		const Player &player = Players[*id];
+		if (matches.size() > 1) {
+			std::string names;
+			for (size_t id : matches)
+				names += (names.empty() ? "" : ", ") + std::string(Players[id]._pName);
+			return fmt::format(fmt::runtime(_("\"{:s}\" could be {:s}. Type more of the name.")), parameter, names);
+		}
+		const Player &player = Players[matches[0]];
 		Marker = PositionMarker { PositionMarker::Kind::Player, -1, {}, player.plrlevel, player.plrIsOnSetLevel, player._pName };
 		if (IsMarkerOnThisLevel())
 			return fmt::format(fmt::runtime(_("{:s} is on your level.")), player._pName);
