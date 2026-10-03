@@ -476,7 +476,8 @@ int CheapestAffixPrice(const PLStruct &affix, std::optional<int> minRoll, std::o
 /**
  * The cheapest an item on the wishlist can cost on each base Wirt can roll for you: the price is the affixes' prices plus
  * their multipliers times the base item's value (CalcItemValue), so it's each wanted affix at the lowest value allowed.
- * Bases the wanted affixes can't go on are left out; a name the game has more than once (Ring) is listed once.
+ * Bases the wanted affixes can't go on are left out; a name the game has more than once (Ring) is listed once. A level
+ * of -1 prices them as at a level where Wirt rolls the affixes, to see ahead.
  */
 std::vector<std::pair<std::string, int>> BasePrices(const Wishlist &wish, const std::vector<std::string> &sold, int level)
 {
@@ -487,7 +488,7 @@ std::vector<std::pair<std::string, int>> BasePrices(const Wishlist &wish, const 
 			for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
 				const PLStruct &affix = table[j];
 				if (AsciiStrToLower(affix.PLName) != want.name || !HasAnyOf(affix.PLIType, kinds) || !affix.PLOk
-				    || affix.PLMinLvl < level || affix.PLMinLvl > 2 * level)
+				    || (level >= 0 && (affix.PLMinLvl < level || affix.PLMinLvl > 2 * level)))
 					continue;
 				const int price = CheapestAffixPrice(affix, wish.minRoll, want.minimum) + std::max(affix.multVal, 0) * baseValue;
 				if (!best || price < *best)
@@ -501,7 +502,7 @@ std::vector<std::pair<std::string, int>> BasePrices(const Wishlist &wish, const 
 	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
 		const ItemData &base = AllItemsList[j];
 		const std::string type(ItemTypeName(base.itype));
-		if (type.empty() || base.iRnd == IDROP_NEVER || base.iMinMLvl > level || std::find(sold.begin(), sold.end(), type) == sold.end())
+		if (type.empty() || base.iRnd == IDROP_NEVER || (level >= 0 && base.iMinMLvl > level) || std::find(sold.begin(), sold.end(), type) == sold.end())
 			continue;
 		if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(base.iName)) == wish.bases.end())
 			continue;
@@ -554,7 +555,7 @@ std::vector<std::string> SoldTypes(const Wishlist &wish)
  * amulets in multiplayer; he only rolls affixes whose level is from your character level to twice it (SpawnBoy), and
  * only ones that aren't bad (onlygood).
  */
-std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true)
+std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool checkLevel = true)
 {
 	const std::vector<std::string> sold = SoldTypes(wish);
 	if (sold.empty())
@@ -577,7 +578,7 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true)
 					why = fmt::format(fmt::runtime(_("{:s} can't be on those items.")), affix.PLName);
 				} else if (!affix.PLOk) {
 					why = fmt::format(fmt::runtime(_("Wirt never sells {:s}: it's a bad affix.")), affix.PLName);
-				} else if (affix.PLMinLvl < level || affix.PLMinLvl > 2 * level) {
+				} else if (checkLevel && (affix.PLMinLvl < level || affix.PLMinLvl > 2 * level)) {
 					why = fmt::format(fmt::runtime(_("{:s} is a level {:d} affix: Wirt rolls it at character levels {:d}-{:d}, you're {:d}.")),
 					    affix.PLName, affix.PLMinLvl, (affix.PLMinLvl + 1) / 2, affix.PLMinLvl, level);
 				} else {
@@ -618,9 +619,12 @@ std::string ListBases(string_view text)
 	const std::optional<Wishlist> wish = ParseWishlist(text, error);
 	if (!wish)
 		return error;
-	if (const std::string reason = WhyImpossible(*wish, false); !reason.empty())
+	// Only what can never happen stops the list; outside the level where Wirt rolls the affixes it's priced as within
+	// it, with a note, so you can see ahead.
+	if (const std::string reason = WhyImpossible(*wish, false, false); !reason.empty())
 		return reason;
-	const std::vector<std::pair<std::string, int>> prices = BasePrices(*wish, SoldTypes(*wish), MyPlayer->_pLevel);
+	const std::string levelNote = WhyImpossible(*wish, false, true);
+	const std::vector<std::pair<std::string, int>> prices = BasePrices(*wish, SoldTypes(*wish), levelNote.empty() ? MyPlayer->_pLevel : -1);
 	if (prices.empty())
 		return std::string(_("No base Wirt sells can have that."));
 
@@ -644,6 +648,8 @@ std::string ListBases(string_view text)
 			names += StrCat(i == 0 ? "" : ", ", over[i].first, " ", FormatInteger(over[i].second));
 		EventPlrMsg(fmt::format(fmt::runtime(_("  over {:s}: {:s}{:s}")), FormatInteger(MaxBoyValue), names, over.size() > 4 ? ", ..." : ""));
 	}
+	if (!levelNote.empty())
+		EventPlrMsg(StrCat("  ", levelNote));
 	return "";
 }
 
@@ -696,8 +702,12 @@ std::string TextCmdWirt(string_view parameter)
 		Wish = std::nullopt;
 		return std::string(_("Wirt's wishlist cleared."));
 	}
-	if (AsciiStrToLower(parameter.substr(0, 6)) == "bases " || AsciiStrToLower(parameter) == "bases")
-		return ListBases(parameter.size() > 6 ? parameter.substr(6) : string_view());
+	// "/wirt bases ..." (or "base") lists the bases instead of hunting.
+	for (const string_view word : { string_view("bases"), string_view("base") }) {
+		const std::string lower = AsciiStrToLower(parameter);
+		if (lower == word || lower.rfind(StrCat(word, " "), 0) == 0)
+			return ListBases(parameter.substr(std::min(parameter.size(), word.size() + 1)));
+	}
 	std::string error;
 	std::optional<Wishlist> wish = ParseWishlist(parameter, error);
 	if (!wish)
