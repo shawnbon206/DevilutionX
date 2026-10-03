@@ -550,6 +550,88 @@ std::vector<std::string> SoldTypes(const Wishlist &wish)
 	return sold;
 }
 
+constexpr int MaxCharacterLevel = 50;
+
+/** Whether Wirt rolls one of the wanted affixes for a place at a character level: its level is from that level to twice it. */
+bool SlotRollable(const std::vector<WantedAffix> &wanted, const PLStruct *table, AffixItemType kinds, int level)
+{
+	for (const WantedAffix &want : wanted) {
+		for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
+			const PLStruct &affix = table[j];
+			if (AsciiStrToLower(affix.PLName) == want.name && HasAnyOf(affix.PLIType, kinds) && affix.PLOk && affix.PLMinLvl >= level && affix.PLMinLvl <= 2 * level)
+				return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * The character levels at which Wirt can roll an item on the wishlist: a base of a wanted type is within the level (its
+ * level at most yours), and every wanted affix, or one of them with --either, is within its window.
+ */
+std::vector<int> WishLevels(const Wishlist &wish, const std::vector<std::string> &sold)
+{
+	std::vector<int> levels;
+	for (int level = 1; level <= MaxCharacterLevel; level++) {
+		bool fits = false;
+		for (int j = IDI_GOLD; j <= IDI_LAST && !fits; j++) {
+			const ItemData &base = AllItemsList[j];
+			const std::string type(ItemTypeName(base.itype));
+			if (type.empty() || base.iRnd == IDROP_NEVER || base.iMinMLvl > level || std::find(sold.begin(), sold.end(), type) == sold.end())
+				continue;
+			if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(base.iName)) == wish.bases.end())
+				continue;
+			const AffixItemType kinds = AffixKindsFor(type);
+			const bool prefix = wish.prefixes.empty() || SlotRollable(wish.prefixes, ItemPrefixes, kinds, level);
+			const bool suffix = wish.suffixes.empty() || SlotRollable(wish.suffixes, ItemSuffixes, kinds, level);
+			if (wish.either && !wish.prefixes.empty() && !wish.suffixes.empty())
+				fits = SlotRollable(wish.prefixes, ItemPrefixes, kinds, level) || SlotRollable(wish.suffixes, ItemSuffixes, kinds, level);
+			else
+				fits = prefix && suffix;
+		}
+		if (fits)
+			levels.push_back(level);
+	}
+	return levels;
+}
+
+/** Levels as ranges: "14-19", or "8-12, 20-24". */
+std::string RangesText(const std::vector<int> &levels)
+{
+	std::string text;
+	for (size_t i = 0; i < levels.size();) {
+		size_t end = i;
+		while (end + 1 < levels.size() && levels[end + 1] == levels[end] + 1)
+			end++;
+		text += StrCat(text.empty() ? "" : ", ", levels[i], levels[end] != levels[i] ? StrCat("-", levels[end]) : "");
+		i = end + 1;
+	}
+	return text;
+}
+
+/** The wanted affixes with their levels: "King's (level 28) + blood (level 19)", alternatives joined with "or". */
+std::string AffixLevelsText(const Wishlist &wish, AffixItemType kinds)
+{
+	const auto slotText = [kinds](const std::vector<WantedAffix> &wanted, const PLStruct *table) {
+		std::string text;
+		for (const WantedAffix &want : wanted) {
+			for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
+				const PLStruct &affix = table[j];
+				if (AsciiStrToLower(affix.PLName) == want.name && HasAnyOf(affix.PLIType, kinds) && affix.PLOk) {
+					text += StrCat(text.empty() ? "" : " or ", affix.PLName, " (level ", affix.PLMinLvl, ")");
+					break;
+				}
+			}
+		}
+		return text;
+	};
+	const std::string prefixes = slotText(wish.prefixes, ItemPrefixes);
+	const std::string suffixes = slotText(wish.suffixes, ItemSuffixes);
+	if (prefixes.empty() || suffixes.empty())
+		return prefixes.empty() ? suffixes : prefixes;
+	return StrCat(prefixes, wish.either ? " or " : " + ", suffixes);
+}
+
 /**
  * Why Wirt could never roll an item on this wishlist for you, or nothing if he can. He sells no staves, and no rings or
  * amulets in multiplayer; he only rolls affixes whose level is from your character level to twice it (SpawnBoy), and
@@ -578,9 +660,6 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool che
 					why = fmt::format(fmt::runtime(_("{:s} can't be on those items.")), affix.PLName);
 				} else if (!affix.PLOk) {
 					why = fmt::format(fmt::runtime(_("Wirt never sells {:s}: it's a bad affix.")), affix.PLName);
-				} else if (checkLevel && (affix.PLMinLvl < level || affix.PLMinLvl > 2 * level)) {
-					why = fmt::format(fmt::runtime(_("{:s} is a level {:d} affix: Wirt rolls it at character levels {:d}-{:d}, you're {:d}.")),
-					    affix.PLName, affix.PLMinLvl, (affix.PLMinLvl + 1) / 2, affix.PLMinLvl, level);
 				} else {
 					return "";
 				}
@@ -597,6 +676,15 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool che
 			return prefixReason;
 	} else if (!prefixReason.empty() || !suffixReason.empty()) {
 		return !prefixReason.empty() ? prefixReason : suffixReason;
+	}
+
+	if (checkLevel) {
+		const std::vector<int> levels = WishLevels(wish, sold);
+		if (std::find(levels.begin(), levels.end(), level) == levels.end()) {
+			if (levels.empty())
+				return fmt::format(fmt::runtime(_("{:s}: Wirt never rolls that at any one character level.")), AffixLevelsText(wish, kinds));
+			return fmt::format(fmt::runtime(_("{:s}: Wirt rolls that at character levels {:s}, you're {:d}.")), AffixLevelsText(wish, kinds), RangesText(levels), level);
+		}
 	}
 
 	if (!checkPrice)
