@@ -26,6 +26,7 @@
 #include "plrmsg.h"
 #include "spelldat.h"
 #include "stores.h"
+#include "utils/format_int.hpp"
 #include "utils/language.h"
 #include "utils/str_case.hpp"
 #include "utils/str_cat.hpp"
@@ -473,11 +474,11 @@ int CheapestAffixPrice(const PLStruct &affix, std::optional<int> minRoll, std::o
 }
 
 /**
- * The cheapest an item on the wishlist can cost: the price is the affixes' prices plus their multipliers times the base
- * item's value (CalcItemValue), so it's the cheapest base Wirt can roll for you with each wanted affix at the lowest value
- * allowed. Nothing when no base fits.
+ * The cheapest an item on the wishlist can cost on each base Wirt can roll for you: the price is the affixes' prices plus
+ * their multipliers times the base item's value (CalcItemValue), so it's each wanted affix at the lowest value allowed.
+ * Bases the wanted affixes can't go on are left out; a name the game has more than once (Ring) is listed once.
  */
-std::optional<int> CheapestPrice(const Wishlist &wish, const std::vector<std::string> &sold, int level)
+std::vector<std::pair<std::string, int>> BasePrices(const Wishlist &wish, const std::vector<std::string> &sold, int level)
 {
 	// The least a place adds for a base: its cheapest wanted entry Wirt can roll on it; nothing when none can.
 	const auto slotPrice = [&](const std::vector<WantedAffix> &wanted, const PLStruct *table, AffixItemType kinds, int baseValue) -> std::optional<int> {
@@ -496,7 +497,7 @@ std::optional<int> CheapestPrice(const Wishlist &wish, const std::vector<std::st
 		return best;
 	};
 
-	std::optional<int> cheapest;
+	std::vector<std::pair<std::string, int>> prices;
 	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
 		const ItemData &base = AllItemsList[j];
 		const std::string type(ItemTypeName(base.itype));
@@ -516,18 +517,20 @@ std::optional<int> CheapestPrice(const Wishlist &wish, const std::vector<std::st
 		} else if (prefix && suffix) {
 			price = *prefix + *suffix;
 		}
-		if (price && (!cheapest || *price < *cheapest))
-			cheapest = price;
+		if (!price)
+			continue;
+		const auto same = std::find_if(prices.begin(), prices.end(), [&base](const auto &entry) { return entry.first == base.iName; });
+		if (same == prices.end())
+			prices.emplace_back(base.iName, *price);
+		else
+			same->second = std::min(same->second, *price);
 	}
-	return cheapest;
+	std::sort(prices.begin(), prices.end(), [](const auto &a, const auto &b) { return a.second < b.second; });
+	return prices;
 }
 
-/**
- * Why Wirt could never roll an item on this wishlist for you, or nothing if he can. He sells no staves, and no rings or
- * amulets in multiplayer; he only rolls affixes whose level is from your character level to twice it (SpawnBoy), and
- * only ones that aren't bad (onlygood).
- */
-std::string WhyImpossible(const Wishlist &wish)
+/** The types on the wishlist (from --type and --base, else every type) that Wirt sells. */
+std::vector<std::string> SoldTypes(const Wishlist &wish)
 {
 	std::vector<std::string> types = wish.types;
 	for (const std::string &base : wish.bases) {
@@ -540,9 +543,20 @@ std::string WhyImpossible(const Wishlist &wish)
 		types.assign(TypeNames.begin(), TypeNames.end());
 	std::vector<std::string> sold;
 	for (const std::string &type : types) {
-		if (!type.empty() && WirtSells(type))
+		if (!type.empty() && WirtSells(type) && std::find(sold.begin(), sold.end(), type) == sold.end())
 			sold.push_back(type);
 	}
+	return sold;
+}
+
+/**
+ * Why Wirt could never roll an item on this wishlist for you, or nothing if he can. He sells no staves, and no rings or
+ * amulets in multiplayer; he only rolls affixes whose level is from your character level to twice it (SpawnBoy), and
+ * only ones that aren't bad (onlygood).
+ */
+std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true)
+{
+	const std::vector<std::string> sold = SoldTypes(wish);
 	if (sold.empty())
 		return gbIsMultiplayer ? std::string(_("Wirt doesn't sell those: no staves, and no rings or amulets in multiplayer.")) : std::string(_("Wirt doesn't sell staves."));
 	AffixItemType kinds = AffixItemType::None;
@@ -584,9 +598,51 @@ std::string WhyImpossible(const Wishlist &wish)
 		return !prefixReason.empty() ? prefixReason : suffixReason;
 	}
 
-	const std::optional<int> cheapest = CheapestPrice(wish, sold, level);
-	if (cheapest && *cheapest > MaxBoyValue) {
-		return fmt::format(fmt::runtime(_("The cheapest item on this wishlist costs {:d} gold; Wirt sells up to {:d}.")), *cheapest, MaxBoyValue);
+	if (!checkPrice)
+		return "";
+	const std::vector<std::pair<std::string, int>> prices = BasePrices(wish, sold, level);
+	if (!prices.empty() && prices.front().second > MaxBoyValue) {
+		return fmt::format(fmt::runtime(_("The cheapest item on this wishlist costs {:s} gold; Wirt sells up to {:s}. See /wirt bases.")),
+		    FormatInteger(prices.front().second), FormatInteger(MaxBoyValue));
+	}
+	return "";
+}
+
+/**
+ * /wirt bases: each base Wirt could put the wishlist's affixes on, with the cheapest such an item costs, in the chat log.
+ * The dearest base still under his limit is the best one a wishlist like this can get.
+ */
+std::string ListBases(string_view text)
+{
+	std::string error;
+	const std::optional<Wishlist> wish = ParseWishlist(text, error);
+	if (!wish)
+		return error;
+	if (const std::string reason = WhyImpossible(*wish, false); !reason.empty())
+		return reason;
+	const std::vector<std::pair<std::string, int>> prices = BasePrices(*wish, SoldTypes(*wish), MyPlayer->_pLevel);
+	if (prices.empty())
+		return std::string(_("No base Wirt sells can have that."));
+
+	std::vector<std::pair<std::string, int>> under;
+	std::vector<std::pair<std::string, int>> over;
+	for (const auto &entry : prices)
+		(entry.second <= MaxBoyValue ? under : over).push_back(entry);
+	EventPlrMsg(fmt::format(fmt::runtime(_("Bases for{:s}, cheapest price each:")), wish->text));
+	constexpr size_t Shown = 8;
+	for (size_t i = 0; i < under.size() && i < Shown; i++) {
+		const auto &entry = under[under.size() - 1 - i];
+		EventPlrMsg(fmt::format("  {:s}  {:s}", entry.first, FormatInteger(entry.second)));
+	}
+	if (under.size() > Shown)
+		EventPlrMsg(fmt::format(fmt::runtime(_("  and {:d} cheaper")), under.size() - Shown));
+	if (under.empty())
+		EventPlrMsg(fmt::format(fmt::runtime(_("  none under {:s}")), FormatInteger(MaxBoyValue)));
+	if (!over.empty()) {
+		std::string names;
+		for (size_t i = 0; i < over.size() && i < 4; i++)
+			names += StrCat(i == 0 ? "" : ", ", over[i].first, " ", FormatInteger(over[i].second));
+		EventPlrMsg(fmt::format(fmt::runtime(_("  over {:s}: {:s}{:s}")), FormatInteger(MaxBoyValue), names, over.size() > 4 ? ", ..." : ""));
 	}
 	return "";
 }
@@ -640,6 +696,8 @@ std::string TextCmdWirt(string_view parameter)
 		Wish = std::nullopt;
 		return std::string(_("Wirt's wishlist cleared."));
 	}
+	if (AsciiStrToLower(parameter.substr(0, 6)) == "bases " || AsciiStrToLower(parameter) == "bases")
+		return ListBases(parameter.size() > 6 ? parameter.substr(6) : string_view());
 	std::string error;
 	std::optional<Wishlist> wish = ParseWishlist(parameter, error);
 	if (!wish)
