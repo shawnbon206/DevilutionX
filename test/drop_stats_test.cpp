@@ -1127,6 +1127,8 @@ TEST_F(DropStats, DumpNames)
 		names << "unique," << CsvField(UniqueItems[j].UIName) << "\n";
 	for (int j = IDI_GOLD; j <= IDI_LAST; j++)
 		names << "base," << CsvField(AllItemsList[j].iName) << "\n";
+	for (int8_t j = static_cast<int8_t>(SpellID::Firebolt); j <= static_cast<int8_t>(SpellID::LAST); j++)
+		names << "spell," << CsvField(GetSpellData(static_cast<SpellID>(j)).sNameText) << "\n";
 	ASSERT_TRUE(names) << "could not write " << path;
 }
 
