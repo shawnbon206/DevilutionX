@@ -33,7 +33,6 @@ std::string ShortLevelName(const Player &player)
 void DrawPlayerTracking(const Surface &out)
 {
 	constexpr int Left = 8;
-	const int nameLeft = Left + GetLineWidth(">") + 4;
 	int nameWidth = 0;
 	for (const Player &player : Players) {
 		if (player.plractive && &player != MyPlayer)
@@ -44,10 +43,8 @@ void DrawPlayerTracking(const Surface &out)
 		if (!player.plractive || &player == MyPlayer)
 			continue;
 		const UiFlags color = player.friendlyMode ? UiFlags::ColorWhitegold : UiFlags::ColorRed;
-		if (player.isOnActiveLevel())
-			DrawString(out, ">", Point { Left, y }, { color });
-		DrawString(out, player._pName, Point { nameLeft, y }, { color });
-		DrawString(out, ShortLevelName(player), Point { nameLeft + nameWidth + 8, y }, { color });
+		DrawString(out, player._pName, Point { Left, y }, { color });
+		DrawString(out, ShortLevelName(player), Point { Left + nameWidth + 8, y }, { color });
 		y += 12;
 	}
 }
