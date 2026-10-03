@@ -319,8 +319,9 @@ std::pair<std::string, std::optional<int>> SplitMinimum(const std::string &spec)
 }
 
 /**
- * The game's name a typed one means: the exact name (any case), or the only name that starts with it. Otherwise an
- * error naming what it could be, or saying there's none.
+ * The game's name a typed one means: the exact name (any case), or the only name that starts with it, or failing
+ * that, the only one with a word that does ("staff" for the staves). Otherwise an error naming what it could be, or
+ * saying there's none.
  */
 std::optional<std::string> Resolve(const std::string &typed, const std::vector<std::string> &known, string_view kind, std::string &error)
 {
@@ -334,6 +335,12 @@ std::optional<std::string> Resolve(const std::string &typed, const std::vector<s
 		const bool starts = candidate.rfind(name, 0) == 0 || candidate.rfind(StrCat("the ", name), 0) == 0;
 		if (starts && std::find(starting.begin(), starting.end(), candidate) == starting.end())
 			starting.push_back(candidate);
+	}
+	if (starting.empty()) {
+		for (const std::string &candidate : known) {
+			if (StrCat(" ", candidate).find(StrCat(" ", name)) != std::string::npos && std::find(starting.begin(), starting.end(), candidate) == starting.end())
+				starting.push_back(candidate);
+		}
 	}
 	if (starting.size() == 1)
 		return starting[0];
@@ -360,8 +367,11 @@ std::vector<std::string> KnownNames(string_view kind)
 		for (int8_t j = static_cast<int8_t>(SpellID::Firebolt); j <= static_cast<int8_t>(SpellID::LAST); j++)
 			names.push_back(AsciiStrToLower(GetSpellData(static_cast<SpellID>(j)).sNameText));
 	} else if (kind == "base") {
-		for (int j = IDI_GOLD; j <= IDI_LAST; j++)
-			names.push_back(AsciiStrToLower(AllItemsList[j].iName));
+		// Not quest items (the Staff of Lazarus): no vendor sells them.
+		for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+			if (AllItemsList[j].iRnd != IDROP_NEVER)
+				names.push_back(AsciiStrToLower(AllItemsList[j].iName));
+		}
 	} else if (kind == "type") {
 		for (const char *type : TypeNames)
 			names.emplace_back(type);
@@ -1003,6 +1013,59 @@ void HuntAdria(int lvl)
 	AdriaRollsLeft = 0;
 }
 
+namespace {
+
+/**
+ * /adria bases: the staff and book bases Adria can stock with the wishlist on them, best first (dearest base; price is
+ * no object with her), each with the stock level it first comes at if that's above hers now.
+ */
+std::string ListAdriaBases(string_view text)
+{
+	std::string error;
+	const std::optional<Wishlist> wish = ParseWishlist(text, error);
+	if (!wish)
+		return error;
+	if (!wish->types.empty() && std::none_of(wish->types.begin(), wish->types.end(), [](const std::string &type) { return IsAnyOf(type, "staff", "book"); }))
+		return std::string(_("Adria sells staves and books (and potions and scrolls), nothing else on this list."));
+	struct Base {
+		std::string name;
+		int value;
+		int firstLevel;
+	};
+	std::vector<Base> bases;
+	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+		const ItemData &data = AllItemsList[j];
+		const std::string kind = KindName(data);
+		if (!IsAnyOf(kind, "staff", "book") || data.iRnd == IDROP_NEVER)
+			continue;
+		if (std::any_of(bases.begin(), bases.end(), [&](const Base &base) { return base.name == (kind == "book" ? std::string(_("Book")) : std::string(data.iName)); }))
+			continue;
+		Wishlist narrowed = *wish;
+		narrowed.bases = { AsciiStrToLower(data.iName) };
+		for (int level = 6; level <= 16; level++) {
+			if (AdriaCanSell(narrowed, level)) {
+				// A book's base name is "Book of ", which the spell completes.
+				bases.push_back({ kind == "book" ? std::string(_("Book")) : std::string(data.iName), data.iValue, level });
+				break;
+			}
+		}
+	}
+	if (bases.empty())
+		return std::string(_("No staff or book Adria stocks can be like that."));
+	std::sort(bases.begin(), bases.end(), [](const Base &a, const Base &b) { return a.value > b.value; });
+	const int level = AdriaStockLevel();
+	EventPlrMsg(fmt::format(fmt::runtime(_("Bases for{:s}, best first; her stock is level {:d}:")), wish->text, level));
+	for (const Base &base : bases) {
+		if (base.firstLevel > level)
+			EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  (from stock level {:d})")), base.name, base.firstLevel));
+		else
+			EventPlrMsg(StrCat("  ", base.name));
+	}
+	return "";
+}
+
+} // namespace
+
 std::string TextCmdAdria(string_view parameter)
 {
 	if (parameter.empty()) {
@@ -1013,6 +1076,12 @@ std::string TextCmdAdria(string_view parameter)
 	if (AsciiStrToLower(parameter) == "off") {
 		AdriaWish = std::nullopt;
 		return std::string(_("Adria's wishlist cleared."));
+	}
+	// "/adria bases ..." (or "base") lists the bases instead of hunting.
+	for (const string_view word : { string_view("bases"), string_view("base") }) {
+		const std::string lower = AsciiStrToLower(parameter);
+		if (lower == word || lower.rfind(StrCat(word, " "), 0) == 0)
+			return ListAdriaBases(parameter.substr(std::min(parameter.size(), word.size() + 1)));
 	}
 	std::string error;
 	std::optional<Wishlist> wish = ParseWishlist(parameter, error);
