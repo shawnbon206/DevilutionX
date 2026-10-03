@@ -536,6 +536,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
 	{ N_("/wirt"), N_("Wirt rerolls his item until it fits a wishlist, like the seed search's."), N_("--type ... --base ... --prefix ... --suffix ... --either --min-roll N | off"), &TextCmdWirt },
+	{ N_("/adria"), N_("Adria restocks until she has a staff or book that fits a wishlist."), N_("--type staff book --base ... --prefix ... --suffix ... --either --min-roll N | off"), &TextCmdAdria },
 };
 
 bool CheckTextCommand(const string_view text)

@@ -25,6 +25,7 @@
 #include "player.h"
 #include "plrmsg.h"
 #include "spelldat.h"
+#include "spells.h"
 #include "stores.h"
 #include "utils/format_int.hpp"
 #include "utils/language.h"
@@ -55,8 +56,8 @@ struct Wishlist {
 
 std::optional<Wishlist> Wish;
 
-constexpr std::array<const char *, 12> TypeNames = { "ring", "amulet", "sword", "axe", "mace", "bow", "staff", "helm", "shield",
-	"light_armor", "medium_armor", "heavy_armor" };
+constexpr std::array<const char *, 13> TypeNames = { "ring", "amulet", "sword", "axe", "mace", "bow", "staff", "helm", "shield",
+	"light_armor", "medium_armor", "heavy_armor", "book" };
 
 string_view ItemTypeName(ItemType type)
 {
@@ -75,6 +76,12 @@ string_view ItemTypeName(ItemType type)
 	case ItemType::Amulet: return "amulet";
 	default: return "";
 	}
+}
+
+/** An item's type name, with spell books as "book". */
+std::string KindName(const ItemData &data)
+{
+	return data.iMiscId == IMISC_BOOK ? "book" : std::string(ItemTypeName(data.itype));
 }
 
 // The roll of an affix, the same way the seed search works it out (test/drop_stats_test.cpp).
@@ -232,10 +239,19 @@ ItemAffix FindAffix(const PLStruct *table, item_effect_type power, bool isPrefix
 
 /**
  * The suffix place: a staff's spell takes it (such a staff never has a suffix), with its charges as the value and
- * where they fell in the spell's range, before a Plentiful or Bountiful prefix multiplied them, as the roll.
+ * where they fell in the spell's range, before a Plentiful or Bountiful prefix multiplied them, as the roll. A book's
+ * spell stands there too ("Book of Teleport"), with nothing that rolls.
  */
 ItemAffix FindSuffix(const Item &item, const ItemAffix &prefix)
 {
+	if (item._iMiscId == IMISC_BOOK) {
+		ItemAffix book;
+		if (item._iSpell != SpellID::Null) {
+			book.name = AsciiStrToLower(GetSpellData(item._iSpell).sNameText);
+			book.roll = 100;
+		}
+		return book;
+	}
 	ItemAffix suffix = FindAffix(ItemSuffixes, item._iSufPower, false, item);
 	if (suffix.affix != nullptr || item._iMiscId != IMISC_STAFF || item._iSpell == SpellID::Null)
 		return suffix;
@@ -443,10 +459,10 @@ AffixItemType AffixKindsFor(string_view type)
 	return AffixItemType::Armor;
 }
 
-/** Whether Wirt sells this type of item at all: never staves (in Diablo), and in multiplayer no rings or amulets. */
+/** Whether Wirt sells this type of item at all: never staves (in Diablo) or books, and in multiplayer no rings or amulets. */
 bool WirtSells(string_view type)
 {
-	if (type == "staff")
+	if (IsAnyOf(type, "staff", "book"))
 		return false;
 	if (gbIsMultiplayer && IsAnyOf(type, "ring", "amulet"))
 		return false;
@@ -741,6 +757,156 @@ std::string ListBases(string_view text)
 	return "";
 }
 
+/** Whether an item fits a wishlist: its type and base, and its wanted affixes (a staff's or book's spell as its suffix). */
+bool MatchesWish(const Wishlist &wish, const Item &item)
+{
+	if (item.isEmpty())
+		return false;
+	if (!wish.types.empty() && std::find(wish.types.begin(), wish.types.end(), KindName(AllItemsList[item.IDidx])) == wish.types.end())
+		return false;
+	if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(AllItemsList[item.IDidx].iName)) == wish.bases.end())
+		return false;
+	if (wish.prefixes.empty() && wish.suffixes.empty())
+		return true;
+	const ItemAffix prefix = FindAffix(ItemPrefixes, item._iPrePower, true, item);
+	const ItemAffix suffix = FindSuffix(item, prefix);
+	const bool hasPrefix = AffixWanted(wish.prefixes, prefix, wish.minRoll);
+	const bool hasSuffix = AffixWanted(wish.suffixes, suffix, wish.minRoll);
+	if (!wish.prefixes.empty() && !wish.suffixes.empty())
+		return wish.either ? (hasPrefix || hasSuffix) : (hasPrefix && hasSuffix);
+	return wish.prefixes.empty() ? hasSuffix : hasPrefix;
+}
+
+// Adria: she sells staves and books among her potions and scrolls, and restocks each time you come to town.
+
+std::optional<Wishlist> AdriaWish;
+
+/** How many times Adria restocks at most looking for a wanted item: each stock is 7 to 9 items. */
+constexpr int AdriaStockTries = 10000;
+
+/** Her stock level, as SetupTownStores works it out: half your character level in multiplayer, your deepest dungeon level in single player, plus 2, from 6 to 16. */
+int AdriaStockLevel()
+{
+	int level = MyPlayer->_pLevel / 2;
+	if (!gbIsMultiplayer) {
+		level = 0;
+		for (int i = 0; i < NUMLEVELS; i++) {
+			if (MyPlayer->_pLvlVisited[i])
+				level = i;
+		}
+	}
+	return std::clamp(level + 2, 6, 16);
+}
+
+std::optional<SpellID> SpellNamed(const std::string &name)
+{
+	for (int8_t j = static_cast<int8_t>(SpellID::Firebolt); j <= static_cast<int8_t>(SpellID::LAST); j++) {
+		if (AsciiStrToLower(GetSpellData(static_cast<SpellID>(j)).sNameText) == name)
+			return static_cast<SpellID>(j);
+	}
+	return std::nullopt;
+}
+
+/** Whether one of the wanted affixes is a good one for staves with a level from lowest to highest. */
+bool AnyStaffAffix(const std::vector<WantedAffix> &wanted, const PLStruct *table, int lowest, int highest)
+{
+	for (const WantedAffix &want : wanted) {
+		for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
+			const PLStruct &affix = table[j];
+			if (AsciiStrToLower(affix.PLName) == want.name && HasAnyOf(affix.PLIType, AffixItemType::Staff) && affix.PLOk
+			    && affix.PLMinLvl >= lowest && affix.PLMinLvl <= highest)
+				return true;
+		}
+	}
+	return false;
+}
+
+/** Whether one of the wanted suffixes is a spell whose staff or book level (as asked) is at most the given level. */
+bool AnySpell(const std::vector<WantedAffix> &wanted, bool book, int level)
+{
+	for (const WantedAffix &want : wanted) {
+		const std::optional<SpellID> spell = SpellNamed(want.name);
+		if (!spell)
+			continue;
+		const int spellLevel = book ? GetSpellBookLevel(*spell) : GetSpellStaffLevel(*spell);
+		if (spellLevel != -1 && spellLevel <= level)
+			return true;
+	}
+	return false;
+}
+
+/**
+ * Whether Adria can have an item on the wishlist at a stock level: a staff or book base of at most that level; a book's
+ * spell of at most that book level; a staff either with a spell of at most that staff level and a prefix of at most twice
+ * the level (GetStaffPower), or without a spell and with affixes from the level to twice it (SpawnWitch, GetItemBonus).
+ */
+bool AdriaCanSell(const Wishlist &wish, int level)
+{
+	const bool wantsPrefix = !wish.prefixes.empty();
+	const bool wantsSuffix = !wish.suffixes.empty();
+	const auto fits = [&](bool prefix, bool suffix) {
+		if (wantsPrefix && wantsSuffix)
+			return wish.either ? (prefix || suffix) : (prefix && suffix);
+		return wantsPrefix ? prefix : (wantsSuffix ? suffix : true);
+	};
+	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+		const ItemData &base = AllItemsList[j];
+		const std::string kind = KindName(base);
+		if (!IsAnyOf(kind, "staff", "book") || base.iRnd == IDROP_NEVER || base.iMinMLvl > level)
+			continue;
+		if (!wish.types.empty() && std::find(wish.types.begin(), wish.types.end(), kind) == wish.types.end())
+			continue;
+		if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(base.iName)) == wish.bases.end())
+			continue;
+		if (kind == "book") {
+			if (fits(false, AnySpell(wish.suffixes, true, level)))
+				return true;
+			continue;
+		}
+		if (fits(AnyStaffAffix(wish.prefixes, ItemPrefixes, 0, 2 * level), AnySpell(wish.suffixes, false, level)))
+			return true;
+		if (fits(AnyStaffAffix(wish.prefixes, ItemPrefixes, level, 2 * level), AnyStaffAffix(wish.suffixes, ItemSuffixes, level, 2 * level)))
+			return true;
+	}
+	return false;
+}
+
+/** Why Adria could never have an item on this wishlist for you now, or nothing if she can. */
+std::string WhyAdriaCant(const Wishlist &wish)
+{
+	if (!wish.types.empty() && std::none_of(wish.types.begin(), wish.types.end(), [](const std::string &type) { return IsAnyOf(type, "staff", "book"); }))
+		return std::string(_("Adria sells staves and books (and potions and scrolls), nothing else on this list."));
+	std::vector<int> levels;
+	for (int level = 6; level <= 16; level++) {
+		if (AdriaCanSell(wish, level))
+			levels.push_back(level);
+	}
+	if (levels.empty()) {
+		// Say it's her stock level only when a deeper stock would have it (a Book of Apocalypse); otherwise the items
+		// themselves can't be like that (a book has no prefix).
+		for (int level = 17; level <= 2 * MaxCharacterLevel; level++) {
+			if (AdriaCanSell(wish, level))
+				return fmt::format(fmt::runtime(_("Adria never sells that: it needs stock level {:d}, and hers is at most 16.")), level);
+		}
+		if (!wish.prefixes.empty() && !wish.either && !wish.types.empty() && std::all_of(wish.types.begin(), wish.types.end(), [](const std::string &type) { return type == "book"; }))
+			return std::string(_("Adria never sells that: books have no prefixes."));
+		return std::string(_("Adria never sells that: no staff or book can be like that."));
+	}
+	const int level = AdriaStockLevel();
+	if (std::find(levels.begin(), levels.end(), level) != levels.end())
+		return "";
+	return fmt::format(fmt::runtime(_("Adria sells that at stock levels {:s}; her stock is level {:d} ({:s} + 2).")), RangesText(levels), level,
+	    gbIsMultiplayer ? _("half your character level") : _("your deepest dungeon level"));
+}
+
+/** An item's name for a report, with a staff's charges. */
+std::string ItemReport(const Item &item)
+{
+	if (item._iMiscId == IMISC_STAFF && item._iSpell != SpellID::Null)
+		return fmt::format(fmt::runtime(_("{:s} ({:d} charges)")), item._iIName, item._iMaxCharges);
+	return item._iIName;
+}
+
 } // namespace
 
 bool WirtWishlistActive()
@@ -750,21 +916,55 @@ bool WirtWishlistActive()
 
 bool WirtWishlistMatches(const Item &item)
 {
-	if (!Wish)
-		return true;
-	if (!Wish->types.empty() && std::find(Wish->types.begin(), Wish->types.end(), ItemTypeName(item._itype)) == Wish->types.end())
-		return false;
-	if (!Wish->bases.empty() && std::find(Wish->bases.begin(), Wish->bases.end(), AsciiStrToLower(AllItemsList[item.IDidx].iName)) == Wish->bases.end())
-		return false;
-	if (Wish->prefixes.empty() && Wish->suffixes.empty())
-		return true;
-	const ItemAffix prefix = FindAffix(ItemPrefixes, item._iPrePower, true, item);
-	const ItemAffix suffix = FindSuffix(item, prefix);
-	const bool hasPrefix = AffixWanted(Wish->prefixes, prefix, Wish->minRoll);
-	const bool hasSuffix = AffixWanted(Wish->suffixes, suffix, Wish->minRoll);
-	if (!Wish->prefixes.empty() && !Wish->suffixes.empty())
-		return Wish->either ? (hasPrefix || hasSuffix) : (hasPrefix && hasSuffix);
-	return Wish->prefixes.empty() ? hasSuffix : hasPrefix;
+	return !Wish || MatchesWish(*Wish, item);
+}
+
+void HuntAdria(int lvl)
+{
+	if (!AdriaWish)
+		return;
+	for (int stock = 0; stock < AdriaStockTries; stock++) {
+		if (stock > 0)
+			SpawnWitch(lvl);
+		for (const Item &item : witchitem) {
+			if (MatchesWish(*AdriaWish, item)) {
+				EventPlrMsg(stock == 0 ? fmt::format(fmt::runtime(_("Adria has {:s}.")), ItemReport(item))
+				                       : fmt::format(fmt::runtime(_("Adria has {:s} after {:d} restocks.")), ItemReport(item), stock + 1));
+				return;
+			}
+		}
+	}
+	EventPlrMsg(fmt::format(fmt::runtime(_("Adria had nothing on your wishlist in {:d} restocks.")), AdriaStockTries));
+}
+
+std::string TextCmdAdria(string_view parameter)
+{
+	if (parameter.empty()) {
+		if (!AdriaWish)
+			return std::string(_("No Adria wishlist. Use /adria --type staff book --prefix ... --suffix ... --min-roll N, or /adria off."));
+		return fmt::format(fmt::runtime(_("Adria is looking for:{:s}")), AdriaWish->text);
+	}
+	if (AsciiStrToLower(parameter) == "off") {
+		AdriaWish = std::nullopt;
+		return std::string(_("Adria's wishlist cleared."));
+	}
+	std::string error;
+	std::optional<Wishlist> wish = ParseWishlist(parameter, error);
+	if (!wish)
+		return error;
+	if (const std::string reason = WhyAdriaCant(*wish); !reason.empty())
+		return reason;
+	AdriaWish = std::move(wish);
+	if (leveltype != DTYPE_TOWN || MyPlayer == nullptr)
+		return fmt::format(fmt::runtime(_("Adria will look for:{:s} (when you're next in town).")), AdriaWish->text);
+	// A fresh start, as the stores get one each time you come to town.
+	const uint32_t rngState = GetLCGEngineState();
+	SetRndSeed(SDL_GetTicks());
+	const int level = AdriaStockLevel();
+	SpawnWitch(level);
+	HuntAdria(level);
+	SetRndSeed(rngState);
+	return fmt::format(fmt::runtime(_("Adria is looking for:{:s}")), AdriaWish->text);
 }
 
 void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear)
