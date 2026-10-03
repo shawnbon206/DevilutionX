@@ -1000,12 +1000,12 @@ void HuntAdria(int lvl)
 		}
 		if (found > 0) {
 			const std::string what = found == 1 ? names : fmt::format(fmt::runtime(_("{:d}: {:s}")), found, names);
-			EventPlrMsg(restocks == 1 ? fmt::format(fmt::runtime(_("Adria has {:s}.")), what)
-			                          : fmt::format(fmt::runtime(_("Adria has {:s} (after {:d} restocks).")), what, restocks));
+			// The restocks happen out of sight, at once; only the stock she ends up with is seen, so they aren't counted out.
+			EventPlrMsg(fmt::format(fmt::runtime(_("Adria has {:s}.")), what));
 			break;
 		}
 		if (AdriaRollsLeft <= 0) {
-			EventPlrMsg(fmt::format(fmt::runtime(_("Adria had nothing on your wishlist in {:d} restocks.")), restocks));
+			EventPlrMsg(fmt::format(fmt::runtime(_("Adria has nothing on your wishlist this time ({:d} tries).")), restocks));
 			break;
 		}
 		AdriaRollsLeft -= 9;
