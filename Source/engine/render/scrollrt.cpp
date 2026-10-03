@@ -37,6 +37,7 @@
 #include "qol/floatingnumbers.h"
 #include "qol/itemlabels.h"
 #include "qol/monhealthbar.h"
+#include "qol/player_tracking.h"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
 #include "stores.h"
@@ -1719,6 +1720,7 @@ void DrawAndBlit()
 	DrawCursor(out);
 
 	DrawFPS(out);
+	DrawPlayerTracking(out);
 
 	DrawMain(out, hgt, drawInfoBox, drawHealth, drawMana, drawBelt, drawControlButtons);
 
