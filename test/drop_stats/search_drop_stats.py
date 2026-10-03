@@ -7,6 +7,7 @@ The workers send their items straight to this script, so a search can run for ho
 import argparse
 import csv
 import datetime
+import difflib
 import os
 import queue
 import signal
@@ -124,7 +125,7 @@ def check_names(args):
             if kind in ('suffix', 'spell') and name.startswith('of '):
                 name = name[3:]
             if name not in known[kind]:
-                close = sorted(n for n in known[kind] if n[:3] == name[:3])[:8]
+                close = difflib.get_close_matches(name, known[kind], n=5, cutoff=0.6)
                 sys.exit(f'the game has no {kind} called "{name}"' + (f'; similar: {", ".join(close)}' if close else ''))
 
 
