@@ -24,14 +24,27 @@ bool WirtWishlistActive();
 bool WirtWishlistMatches(const Item &item);
 
 /**
+ * @brief Before Wirt restocks: if his wishlist can't come up any more (you've levelled past its affixes), says why
+ * once and clears it.
+ */
+void RecheckWirtWishlist();
+
+/** @brief Whether a slot of Adria's stock whose first roll is this item is one to reroll: a kind the /adria wishlist wants. */
+bool IsAdriaWishlistSlot(const Item &item);
+
+/** @brief Whether to roll an Adria wishlist slot again: the item doesn't fit, and the hunt's rolls aren't used up. */
+bool RerollAdriaWishlistSlot(const Item &item);
+
+/**
  * @brief Says in the chat log how Wirt's hunt went: what he found and after how many tries, or that he found nothing,
  * and how many wanted items he rolled that cost more than he may sell (90,000 gold).
  */
 void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear);
 
 /**
- * @brief With an /adria wishlist, Adria restocks (SpawnWitch at her stock level) until she has an item that fits it, a
- * limited number of times, and the chat log says how it went. Called when she stocks up as you come to town.
+ * @brief Adria stocks up (SpawnWitch at her stock level). With an /adria wishlist, every slot she'd stock with a kind on
+ * it rerolls until it fits, and she restocks until she has at least one, within a limited number of rolls; the chat log
+ * says what she has. Called when she stocks up as you come to town.
  */
 void HuntAdria(int lvl);
 

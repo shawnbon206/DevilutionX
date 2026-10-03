@@ -4336,6 +4336,9 @@ void SpawnWitch(int lvl)
 			continue;
 		}
 
+		// With an /adria wishlist, a slot whose first roll is a kind on it (a staff, a book) keeps rolling until it fits.
+		bool firstRoll = true;
+		bool wishlistSlot = false;
 		do {
 			item = {};
 			item._iSeed = AdvanceRndSeed();
@@ -4349,7 +4352,11 @@ void SpawnWitch(int lvl)
 				maxlvl = 2 * lvl;
 			if (maxlvl != -1)
 				GetItemBonus(*MyPlayer, item, maxlvl / 2, maxlvl, true, true);
-		} while (item._iIvalue > maxValue);
+			if (firstRoll) {
+				wishlistSlot = IsAdriaWishlistSlot(item);
+				firstRoll = false;
+			}
+		} while (item._iIvalue > maxValue || (wishlistSlot && RerollAdriaWishlistSlot(item)));
 
 		item._iCreateInfo = lvl | CF_WITCH;
 		item._iIdentified = true;
@@ -4376,6 +4383,7 @@ void SpawnBoy(int lvl)
 
 	if (boylevel >= (lvl / 2) && !boyitem.isEmpty())
 		return;
+	RecheckWirtWishlist();
 	int wishlistTries = 0;
 	int wishlistTooDear = 0;
 	do {
