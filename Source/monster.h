@@ -195,7 +195,7 @@ struct CMonster {
 	}
 };
 
-extern CMonster LevelMonsterTypes[MaxLvlMTypes];
+extern DVL_API_FOR_TEST CMonster LevelMonsterTypes[MaxLvlMTypes];
 
 struct Monster { // note: missing field _mAFNum
 	std::unique_ptr<uint8_t[]> uniqueMonsterTRN;
@@ -456,9 +456,9 @@ struct Monster { // note: missing field _mAFNum
 };
 
 extern size_t LevelMonsterTypeCount;
-extern Monster Monsters[MaxMonsters];
-extern int ActiveMonsters[MaxMonsters];
-extern size_t ActiveMonsterCount;
+extern DVL_API_FOR_TEST Monster Monsters[MaxMonsters];
+extern DVL_API_FOR_TEST int ActiveMonsters[MaxMonsters];
+extern DVL_API_FOR_TEST size_t ActiveMonsterCount;
 extern int MonsterKillCounts[NUM_MTYPES];
 extern bool sgbSaveSoundOn;
 

@@ -176,11 +176,11 @@ extern WorldTilePosition dmaxPosition;
 extern DVL_API_FOR_TEST dungeon_type leveltype;
 /** Specifies the active dungeon level of the current game. */
 extern DVL_API_FOR_TEST uint8_t currlevel;
-extern bool setlevel;
+extern DVL_API_FOR_TEST bool setlevel;
 /** Specifies the active quest level of the current game. */
-extern _setlevels setlvlnum;
+extern DVL_API_FOR_TEST _setlevels setlvlnum;
 /** Specifies the player viewpoint X-coordinate of the map. */
-extern dungeon_type setlvltype;
+extern DVL_API_FOR_TEST dungeon_type setlvltype;
 /** Specifies the player viewpoint X,Y-coordinates of the map. */
 extern DVL_API_FOR_TEST Point ViewPosition;
 extern uint_fast8_t MicroTileLen;

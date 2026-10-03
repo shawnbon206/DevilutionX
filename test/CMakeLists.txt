@@ -22,6 +22,7 @@ set(tests
   drlg_l2_test
   drlg_l3_test
   drlg_l4_test
+  drop_stats_test
   effects_test
   file_util_test
   format_int_test

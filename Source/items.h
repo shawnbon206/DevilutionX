@@ -476,14 +476,14 @@ struct CornerStoneStruct {
 };
 
 /** Contains the items on ground in the current game. */
-extern Item Items[MAXITEMS + 1];
-extern uint8_t ActiveItems[MAXITEMS];
-extern uint8_t ActiveItemCount;
+extern DVL_API_FOR_TEST Item Items[MAXITEMS + 1];
+extern DVL_API_FOR_TEST uint8_t ActiveItems[MAXITEMS];
+extern DVL_API_FOR_TEST uint8_t ActiveItemCount;
 /** Contains the location of dropped items. */
-extern int8_t dItem[MAXDUNX][MAXDUNY];
+extern DVL_API_FOR_TEST int8_t dItem[MAXDUNX][MAXDUNY];
 extern bool ShowUniqueItemInfoBox;
 extern CornerStoneStruct CornerStone;
-extern bool UniqueItemFlags[128];
+extern DVL_API_FOR_TEST bool UniqueItemFlags[128];
 
 uint8_t GetOutlineColor(const Item &item, bool checkReq);
 bool IsItemAvailable(int i);
@@ -514,6 +514,11 @@ int AllocateItem();
 uint8_t PlaceItemInWorld(Item &&item, WorldTilePosition position);
 Point GetSuperItemLoc(Point position);
 void GetItemAttrs(Item &item, _item_indexes itemData, int lvl);
+/** Applies one item power with a value rolled from its parameters and returns that value. */
+int SaveItemPower(const Player &player, Item &item, ItemPower &power);
+/** Whether the prefix (suffix) at index i of ItemPrefixes (ItemSuffixes) can roll on items of these types. */
+bool IsPrefixValidForItemType(int i, AffixItemType flgs, bool hellfireItem);
+bool IsSuffixValidForItemType(int i, AffixItemType flgs, bool hellfireItem);
 void SetupItem(Item &item);
 Item *SpawnUnique(_unique_items uid, Point position, std::optional<int> level = std::nullopt, bool sendmsg = true, bool exactPosition = false);
 void SpawnItem(Monster &monster, Point position, bool sendmsg, bool spawn = false);

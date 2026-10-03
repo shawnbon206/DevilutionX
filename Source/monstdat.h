@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include "textdat.h"
+#include "utils/attributes.h"
 
 namespace devilution {
 
@@ -316,6 +317,6 @@ struct UniqueMonsterData {
 
 extern const MonsterData MonstersData[];
 extern const _monster_id MonstConvTbl[];
-extern const UniqueMonsterData UniqueMonstersData[];
+extern DVL_API_FOR_TEST const UniqueMonsterData UniqueMonstersData[];
 
 } // namespace devilution

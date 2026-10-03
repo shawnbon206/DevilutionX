@@ -355,6 +355,8 @@ int premiumLvlAddHellfire[] = {
 	// clang-format on
 };
 
+} // namespace
+
 bool IsPrefixValidForItemType(int i, AffixItemType flgs, bool hellfireItem)
 {
 	AffixItemType itemTypes = ItemPrefixes[i].PLIType;
@@ -389,6 +391,8 @@ bool IsSuffixValidForItemType(int i, AffixItemType flgs, bool hellfireItem)
 
 	return HasAnyOf(flgs, itemTypes);
 }
+
+namespace {
 
 int ItemsGetCurrlevel()
 {
@@ -715,6 +719,8 @@ int CalculateToHitBonus(int level)
 		app_fatal("Unknown to hit bonus");
 	}
 }
+
+} // namespace
 
 int SaveItemPower(const Player &player, Item &item, ItemPower &power)
 {
@@ -1058,6 +1064,8 @@ int SaveItemPower(const Player &player, Item &item, ItemPower &power)
 
 	return r;
 }
+
+namespace {
 
 bool StringInPanel(const char *str)
 {

@@ -58,7 +58,7 @@ enum class MouseActionType : uint8_t {
 	OperateObject,
 };
 
-extern uint32_t glSeedTbl[NUMLEVELS];
+extern DVL_API_FOR_TEST uint32_t glSeedTbl[NUMLEVELS];
 extern Point MousePosition;
 extern DVL_API_FOR_TEST bool gbRunGame;
 extern bool gbRunGameResult;
@@ -94,7 +94,7 @@ void diablo_focus_pause();
 void diablo_focus_unpause();
 bool PressEscKey();
 void DisableInputEventHandler(const SDL_Event &event, uint16_t modState);
-void LoadGameLevel(bool firstflag, lvl_entry lvldir);
+DVL_API_FOR_TEST void LoadGameLevel(bool firstflag, lvl_entry lvldir);
 bool IsDiabloAlive(bool playSFX);
 void PrintScreen(SDL_Keycode vkey);
 
