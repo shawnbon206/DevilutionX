@@ -897,6 +897,30 @@ void Render(const UiEdit &uiEdit)
 	// To simulate padding we inset the region used to draw text in an edit control
 	Rectangle rect = MakeRectangle(uiEdit.m_rect).inset({ 43, 1 });
 
+	if (uiEdit.m_breakBeforeDash) {
+		// From the first '-' on goes to a second line; the two lines stay centered on the box.
+		const string_view value = uiEdit.m_value;
+		const size_t dash = value.find('-');
+		std::string shown(value);
+		if (dash != string_view::npos) {
+			shown.insert(dash, 1, '\n');
+			const int lineHeight = GetLineHeight(shown, GetFontSizeFromUiFlags(uiEdit.GetFlags()));
+			rect.position.y -= lineHeight / 2;
+			rect.size.height += lineHeight;
+		}
+		const auto shownPosition = [dash](size_t position) { return static_cast<int>(dash != string_view::npos && position >= dash ? position + 1 : position); };
+		DrawString(Surface(DiabloUiSurface()), shown, rect,
+		    {
+		        uiEdit.GetFlags(),
+		        /*spacing=*/1,
+		        /*lineHeight=*/-1,
+		        /*cursorPosition=*/shownPosition(uiEdit.m_cursor.position),
+		        /*highlightRange=*/ { shownPosition(uiEdit.m_cursor.selection.begin), shownPosition(uiEdit.m_cursor.selection.end) },
+		        /*highlightColor=*/126,
+		    });
+		return;
+	}
+
 	const Surface &out = Surface(DiabloUiSurface());
 	DrawString(out, uiEdit.m_value, rect,
 	    {
