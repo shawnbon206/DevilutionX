@@ -533,25 +533,65 @@ std::string TextCmdLevelSeed(const string_view parameter)
 	    "Storybook: ", glSeedTbl[16]);
 }
 
-/** What /pos marked on the automap: a fixed tile, or a monster or object it follows. Only shown on the level it was set on. */
+/**
+ * What /pos marked on the automap: a fixed tile, or a monster or object it follows, shown on its level, with the way
+ * there marked elsewhere. Or another player, for the way to their level only: their automap arrow does the rest.
+ */
 struct PositionMarker {
 	enum class Kind : uint8_t {
 		Tile,
 		Monster,
 		Object,
+		Player,
 	};
 	Kind kind;
 	int index;
 	Point tile;
 	uint8_t level;
 	bool isSetLevel;
+	/** For a player: who, found again by name, so the way to them comes back if they leave and rejoin. */
+	std::string playerName = {};
 };
 
 std::optional<PositionMarker> Marker;
 
+/** Level for a marked player who isn't in the game right now: never the level you're on, and no way to it. */
+constexpr uint8_t AbsentPlayerLevel = 0xFF;
+
+/** The other player with that name (any case), if they're in the game. */
+std::optional<size_t> FindPlayerByName(string_view name)
+{
+	const std::string wanted = AsciiStrToLower(name);
+	for (size_t id = 0; id < Players.size(); id++) {
+		if (Players[id].plractive && &Players[id] != MyPlayer && AsciiStrToLower(Players[id]._pName) == wanted)
+			return id;
+	}
+	return std::nullopt;
+}
+
 bool IsMarkerOnThisLevel()
 {
+	if (Marker && Marker->kind == PositionMarker::Kind::Player) {
+		// A player moves between levels; follow them by name.
+		const std::optional<size_t> id = FindPlayerByName(Marker->playerName);
+		Marker->level = id ? Players[*id].plrlevel : AbsentPlayerLevel;
+		Marker->isSetLevel = id && Players[*id].plrIsOnSetLevel;
+	}
 	return Marker && Marker->level == currlevel && Marker->isSetLevel == setlevel;
+}
+
+/** "town", "dungeon level 9", or a quest level's name ("Lazarus' Lair" is set level 5). */
+std::string MarkerLevelName(uint8_t level, bool isSetLevel)
+{
+	if (isSetLevel) {
+		for (const Quest &quest : Quests) {
+			if (quest._qslvl == level)
+				return std::string(_(QuestsData[quest._qidx]._qlstr));
+		}
+	}
+	if (level == 0)
+		return std::string(_("town"));
+	return fmt::format(fmt::runtime(_("dungeon level {:d}")), level);
 }
 
 bool IsActiveMonster(int index)
@@ -598,7 +638,7 @@ std::string TextCmdPos(const string_view parameter)
 		Marker = std::nullopt;
 		return std::string(_("Automap marker cleared."));
 	}
-	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>:<target> or /pos off."));
+	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>:<target>, /pos <player name> or /pos off."));
 	// A target on any level, written like the end of a seed code ("16:m59", "s5:m40", "9:68,76"), or a whole code.
 	if (parameter.find(':') != string_view::npos) {
 		string_view code = parameter;
@@ -614,18 +654,20 @@ std::string TextCmdPos(const string_view parameter)
 		if (IsMarkerOnThisLevel())
 			return GetAutomapMarkerText();
 		const string_view target = code.substr(code.find(':') + 1);
-		std::string level = fmt::format(fmt::runtime(_("dungeon level {:d}")), Marker->level);
-		if (Marker->isSetLevel) {
-			for (const Quest &quest : Quests) {
-				if (quest._qslvl == Marker->level)
-					level = std::string(_(QuestsData[quest._qidx]._qlstr));
-			}
-		}
-		return fmt::format(fmt::runtime(_("Marked {:s} on {:s}. The automap shows the way there.")), target, level);
+		return fmt::format(fmt::runtime(_("Marked {:s} on {:s}. The automap shows the way there.")), target, MarkerLevelName(Marker->level, Marker->isSetLevel));
 	}
 	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
-	if (!marker)
-		return usage;
+	if (!marker) {
+		// Another player, by name: the automap shows the way to whatever level they're on.
+		const std::optional<size_t> id = FindPlayerByName(parameter);
+		if (!id)
+			return usage;
+		const Player &player = Players[*id];
+		Marker = PositionMarker { PositionMarker::Kind::Player, -1, {}, player.plrlevel, player.plrIsOnSetLevel, player._pName };
+		if (IsMarkerOnThisLevel())
+			return fmt::format(fmt::runtime(_("{:s} is on your level.")), player._pName);
+		return fmt::format(fmt::runtime(_("{:s} is on {:s}. The automap shows the way there.")), player._pName, MarkerLevelName(player.plrlevel, player.plrIsOnSetLevel));
+	}
 	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index))
 		return fmt::format(fmt::runtime(_("There is no m{:d} on this level.")), marker->index);
 	if (marker->kind == PositionMarker::Kind::Object && !IsActiveObject(marker->index))
@@ -640,7 +682,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/pos"), N_("Shows your tile, or marks a tile, monster or object on the automap."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | off]"), &TextCmdPos },
+	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | <player name> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -786,7 +828,7 @@ bool SetAutomapMarkerFromCode(string_view levelAndTarget)
 std::vector<AutomapWaypoint> GetAutomapWaypoints()
 {
 	std::vector<AutomapWaypoint> waypoints;
-	if (!Marker || IsMarkerOnThisLevel())
+	if (!Marker || IsMarkerOnThisLevel() || Marker->level == AbsentPlayerLevel)
 		return waypoints;
 
 	// A marked quest level is reached through its entrance on a dungeon level; head for that level first.
@@ -879,6 +921,18 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 			waypoints.push_back({ *best });
 		return waypoints;
 	}
+	if (routeLevel == 0) {
+		// Back to town, where a marked player is: a town portal on this level if one is open, else the way up.
+		for (const Missile &missile : Missiles) {
+			if (missile._mitype == MissileID::TownPortal)
+				waypoints.push_back({ missile.position.tile });
+		}
+		if (waypoints.empty()) {
+			addTriggers(WM_DIABPREVLVL);
+			addTriggers(WM_DIABTWARPUP);
+		}
+		return waypoints;
+	}
 	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
 	return waypoints;
 }
@@ -907,7 +961,7 @@ void ClearAutomapMarker()
 
 void AnnounceAutomapMarker()
 {
-	if (IsMarkerOnThisLevel())
+	if (IsMarkerOnThisLevel() && Marker->kind != PositionMarker::Kind::Player)
 		EventPlrMsg(GetAutomapMarkerText());
 }
 
@@ -933,6 +987,8 @@ std::optional<Point> GetAutomapMarkerTile()
 		if (!IsActiveObject(Marker->index))
 			return std::nullopt;
 		return Objects[Marker->index].position;
+	case PositionMarker::Kind::Player:
+		return std::nullopt;
 	default:
 		return Marker->tile;
 	}
@@ -959,6 +1015,8 @@ std::string GetAutomapMarkerText()
 			return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}, already opened")), Marker->index, object.position.x, object.position.y);
 		return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}")), Marker->index, object.position.x, object.position.y);
 	}
+	case PositionMarker::Kind::Player:
+		return "";
 	default:
 		return fmt::format(fmt::runtime(_("Marked: {:d}, {:d}")), Marker->tile.x, Marker->tile.y);
 	}
