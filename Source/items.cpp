@@ -40,6 +40,7 @@
 #include "player.h"
 #include "playerdat.hpp"
 #include "qol/stash.h"
+#include "qol/wirt_wishlist.h"
 #include "spells.h"
 #include "stores.h"
 #include "utils/format_int.hpp"
@@ -716,6 +717,8 @@ int CalculateToHitBonus(int level)
 	}
 }
 
+} // namespace
+
 int SaveItemPower(const Player &player, Item &item, ItemPower &power)
 {
 	if (!gbIsHellfire) {
@@ -1058,6 +1061,8 @@ int SaveItemPower(const Player &player, Item &item, ItemPower &power)
 
 	return r;
 }
+
+namespace {
 
 bool StringInPanel(const char *str)
 {
@@ -4371,6 +4376,8 @@ void SpawnBoy(int lvl)
 
 	if (boylevel >= (lvl / 2) && !boyitem.isEmpty())
 		return;
+	int wishlistTries = 0;
+	int wishlistTooDear = 0;
 	do {
 		keepgoing = false;
 		boyitem = {};
@@ -4382,7 +4389,15 @@ void SpawnBoy(int lvl)
 
 		if (!gbIsHellfire) {
 			if (boyitem._iIvalue > MaxBoyValue) {
+				// Wanted, but more than Wirt may sell: counted, so a hunt that finds nothing can say so.
+				if (WirtWishlistActive() && WirtWishlistMatches(boyitem))
+					wishlistTooDear++;
 				keepgoing = true; // prevent breaking the do/while loop too early by failing hellfire's condition in while
+				continue;
+			}
+			// With a /wirt wishlist, keep rolling until an item fits it, a limited number of times.
+			if (WirtWishlistActive() && !WirtWishlistMatches(boyitem) && ++wishlistTries < WirtWishlistTries) {
+				keepgoing = true;
 				continue;
 			}
 			break;
@@ -4465,6 +4480,8 @@ void SpawnBoy(int lvl)
 	boyitem._iCreateInfo = lvl | CF_BOY;
 	boyitem._iIdentified = true;
 	boylevel = lvl / 2;
+	if (!gbIsHellfire && WirtWishlistActive())
+		ReportWirtWishlist(boyitem, WirtWishlistMatches(boyitem), wishlistTries, wishlistTooDear);
 }
 
 void SpawnHealer(int lvl)

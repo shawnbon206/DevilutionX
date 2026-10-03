@@ -46,6 +46,7 @@
 #include "plrmsg.h"
 #include "portal.h"
 #include "qol/stash.h"
+#include "qol/wirt_wishlist.h"
 #include "qol/xpbar.h"
 #include "quests.h"
 #include "stores.h"
@@ -712,6 +713,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
 	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | <player name> | off]"), &TextCmdPos },
+	{ N_("/wirt"), N_("Wirt rerolls his item until it fits a wishlist, like the seed search's."), N_("--type ... --base ... --prefix ... --suffix ... --either --min-roll N | off"), &TextCmdWirt },
 };
 
 bool CheckTextCommand(const string_view text)

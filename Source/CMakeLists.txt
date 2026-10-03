@@ -148,6 +148,7 @@ set(libdevilutionx_SRCS
   qol/monhealthbar.cpp
   qol/player_tracking.cpp
   qol/stash.cpp
+  qol/wirt_wishlist.cpp
   qol/xpbar.cpp
 
   storm/storm_net.cpp

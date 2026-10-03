@@ -540,6 +540,8 @@ void DoRepair(Player &player, int cii);
 void DoRecharge(Player &player, int cii);
 bool DoOil(Player &player, int cii);
 [[nodiscard]] StringOrView PrintItemPower(char plidx, const Item &item);
+/** @brief Applies one affix power to an item, rolling its value; also used to learn affix roll ranges (Wirt's wishlist). */
+int SaveItemPower(const Player &player, Item &item, ItemPower &power);
 void DrawUniqueInfo(const Surface &out);
 void PrintItemDetails(const Item &item);
 void PrintItemDur(const Item &item);
