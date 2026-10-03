@@ -9,6 +9,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 
 #include <fmt/format.h>
@@ -41,8 +43,11 @@
 #include "panels/spell_icons.hpp"
 #include "panels/spell_list.hpp"
 #include "playerdat.hpp"
+#include "plrmsg.h"
+#include "portal.h"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
+#include "quests.h"
 #include "stores.h"
 #include "towners.h"
 #include "utils/format_int.hpp"
@@ -528,12 +533,185 @@ std::string TextCmdLevelSeed(const string_view parameter)
 	    "Storybook: ", glSeedTbl[16]);
 }
 
+/**
+ * What /pos marked on the automap: a fixed tile, or a monster or object it follows, shown on its level, with the way
+ * there marked elsewhere. Or another player, for the way to their level only: their automap arrow does the rest.
+ */
+struct PositionMarker {
+	enum class Kind : uint8_t {
+		Tile,
+		Monster,
+		Object,
+		Player,
+	};
+	Kind kind;
+	int index;
+	Point tile;
+	uint8_t level;
+	bool isSetLevel;
+	/** For a player: who, found again by name, so the way to them comes back if they leave and rejoin. */
+	std::string playerName = {};
+};
+
+std::optional<PositionMarker> Marker;
+
+/** Level for a marked player who isn't in the game right now: never the level you're on, and no way to it. */
+constexpr uint8_t AbsentPlayerLevel = 0xFF;
+
+/** The other player with that name (any case), if they're in the game. */
+std::optional<size_t> FindPlayerByName(string_view name)
+{
+	const std::string wanted = AsciiStrToLower(name);
+	for (size_t id = 0; id < Players.size(); id++) {
+		if (Players[id].plractive && &Players[id] != MyPlayer && AsciiStrToLower(Players[id]._pName) == wanted)
+			return id;
+	}
+	return std::nullopt;
+}
+
+/**
+ * The other players a typed name means, so names with characters that can't be typed can still be given: an exact
+ * name (any case), else those whose name starts with it, else those whose name contains it.
+ */
+std::vector<size_t> FindPlayersMatching(string_view text)
+{
+	if (const std::optional<size_t> exact = FindPlayerByName(text))
+		return { *exact };
+	const std::string wanted = AsciiStrToLower(text);
+	std::vector<size_t> starting;
+	std::vector<size_t> containing;
+	for (size_t id = 0; id < Players.size(); id++) {
+		if (!Players[id].plractive || &Players[id] == MyPlayer)
+			continue;
+		const std::string name = AsciiStrToLower(Players[id]._pName);
+		if (name.rfind(wanted, 0) == 0)
+			starting.push_back(id);
+		else if (name.find(wanted) != std::string::npos)
+			containing.push_back(id);
+	}
+	return !starting.empty() ? starting : containing;
+}
+
+bool IsMarkerOnThisLevel()
+{
+	if (Marker && Marker->kind == PositionMarker::Kind::Player) {
+		// A player moves between levels; follow them by name.
+		const std::optional<size_t> id = FindPlayerByName(Marker->playerName);
+		Marker->level = id ? Players[*id].plrlevel : AbsentPlayerLevel;
+		Marker->isSetLevel = id && Players[*id].plrIsOnSetLevel;
+	}
+	return Marker && Marker->level == currlevel && Marker->isSetLevel == setlevel;
+}
+
+/** "town", "dungeon level 9", or a quest level's name ("Lazarus' Lair" is set level 5). */
+std::string MarkerLevelName(uint8_t level, bool isSetLevel)
+{
+	if (isSetLevel) {
+		for (const Quest &quest : Quests) {
+			if (quest._qslvl == level)
+				return std::string(_(QuestsData[quest._qidx]._qlstr));
+		}
+	}
+	if (level == 0)
+		return std::string(_("town"));
+	return fmt::format(fmt::runtime(_("dungeon level {:d}")), level);
+}
+
+bool IsActiveMonster(int index)
+{
+	return std::find(ActiveMonsters, ActiveMonsters + ActiveMonsterCount, index) != ActiveMonsters + ActiveMonsterCount;
+}
+
+bool IsActiveObject(int index)
+{
+	return std::find(ActiveObjects, ActiveObjects + ActiveObjectCount, index) != ActiveObjects + ActiveObjectCount;
+}
+
+/** Reads "m59", "o62" or "68,76" (spaces and "(68, 76)" work too) as a marker on the given level. */
+std::optional<PositionMarker> ParseMarkerTarget(string_view target, uint8_t level, bool isSetLevel)
+{
+	std::string text(target);
+	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
+	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, level, isSetLevel };
+	int first = 0;
+	int second = 0;
+	char extra = 0;
+	if (!text.empty() && (text[0] == 'm' || text[0] == 'o') && std::sscanf(text.c_str() + 1, "%d %c", &first, &extra) == 1) {
+		const bool isMonster = text[0] == 'm';
+		if (first < 0 || first >= (isMonster ? static_cast<int>(MaxMonsters) : MAXOBJECTS))
+			return std::nullopt;
+		marker.kind = isMonster ? PositionMarker::Kind::Monster : PositionMarker::Kind::Object;
+		marker.index = first;
+		return marker;
+	}
+	if (std::sscanf(text.c_str(), "%d %d %c", &first, &second, &extra) == 2 && first >= 0 && second >= 0 && first < MAXDUNX && second < MAXDUNY) {
+		marker.tile = { first, second };
+		return marker;
+	}
+	return std::nullopt;
+}
+
+std::string TextCmdPos(const string_view parameter)
+{
+	if (parameter.empty()) {
+		const Point here = MyPlayer->position.tile;
+		return fmt::format(fmt::runtime(_("You are at {:d}, {:d}.")), here.x, here.y);
+	}
+	if (parameter == "off") {
+		Marker = std::nullopt;
+		return std::string(_("Automap marker cleared."));
+	}
+	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>:<target>, /pos <player name> or /pos off."));
+	// A target on any level, written like the end of a seed code ("16:m59", "s5:m40", "9:68,76"), or a whole code.
+	if (parameter.find(':') != string_view::npos) {
+		string_view code = parameter;
+		const size_t dash = code.find('-');
+		if (dash != string_view::npos) {
+			const string_view seedText = code.substr(0, dash);
+			if (seedText != std::to_string(sgGameInitInfo.dwSeed))
+				return fmt::format(fmt::runtime(_("That code is for game seed {:s}; this game's seed is {:d}.")), seedText, sgGameInitInfo.dwSeed);
+			code.remove_prefix(dash + 1);
+		}
+		if (!SetAutomapMarkerFromCode(code))
+			return usage;
+		if (IsMarkerOnThisLevel())
+			return GetAutomapMarkerText();
+		const string_view target = code.substr(code.find(':') + 1);
+		return fmt::format(fmt::runtime(_("Marked {:s} on {:s}. The automap shows the way there.")), target, MarkerLevelName(Marker->level, Marker->isSetLevel));
+	}
+	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
+	if (!marker) {
+		// Another player, by name or part of it: the automap shows the way to whatever level they're on.
+		const std::vector<size_t> matches = FindPlayersMatching(parameter);
+		if (matches.empty())
+			return usage;
+		if (matches.size() > 1) {
+			std::string names;
+			for (size_t id : matches)
+				names += (names.empty() ? "" : ", ") + std::string(Players[id]._pName);
+			return fmt::format(fmt::runtime(_("\"{:s}\" could be {:s}. Type more of the name.")), parameter, names);
+		}
+		const Player &player = Players[matches[0]];
+		Marker = PositionMarker { PositionMarker::Kind::Player, -1, {}, player.plrlevel, player.plrIsOnSetLevel, player._pName };
+		if (IsMarkerOnThisLevel())
+			return fmt::format(fmt::runtime(_("{:s} is on your level.")), player._pName);
+		return fmt::format(fmt::runtime(_("{:s} is on {:s}. The automap shows the way there.")), player._pName, MarkerLevelName(player.plrlevel, player.plrIsOnSetLevel));
+	}
+	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index))
+		return fmt::format(fmt::runtime(_("There is no m{:d} on this level.")), marker->index);
+	if (marker->kind == PositionMarker::Kind::Object && !IsActiveObject(marker->index))
+		return fmt::format(fmt::runtime(_("There is no o{:d} on this level.")), marker->index);
+	Marker = marker;
+	return GetAutomapMarkerText();
+}
+
 std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/help"), N_("Prints help overview or help for a specific command."), N_("[command]"), &TextCmdHelp },
 	{ N_("/arena"), N_("Enter a PvP Arena."), N_("<arena-number>"), &TextCmdArena },
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
+	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | <player name> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -650,6 +828,228 @@ bool IsLevelUpButtonVisible()
 }
 
 } // namespace
+
+bool SetAutomapMarkerFromCode(string_view levelAndTarget)
+{
+	// "16:m59" for dungeon level 16, "s5:m40" for set level 5 (Lazarus' Lair).
+	const size_t colon = levelAndTarget.find(':');
+	if (colon == string_view::npos || colon == 0)
+		return false;
+	string_view levelText = levelAndTarget.substr(0, colon);
+	const bool isSetLevel = levelText[0] == 's';
+	if (isSetLevel)
+		levelText.remove_prefix(1);
+	int level = 0;
+	for (char c : levelText) {
+		if (c < '0' || c > '9' || level > 100)
+			return false;
+		level = level * 10 + (c - '0');
+	}
+	if (levelText.empty() || level < 1 || level >= NUMLEVELS)
+		return false;
+	const std::optional<PositionMarker> marker = ParseMarkerTarget(levelAndTarget.substr(colon + 1), static_cast<uint8_t>(level), isSetLevel);
+	if (!marker)
+		return false;
+	Marker = marker;
+	return true;
+}
+
+std::vector<AutomapWaypoint> GetAutomapWaypoints()
+{
+	std::vector<AutomapWaypoint> waypoints;
+	if (!Marker || IsMarkerOnThisLevel() || Marker->level == AbsentPlayerLevel)
+		return waypoints;
+
+	// A marked quest level is reached through its entrance on a dungeon level; head for that level first.
+	int routeLevel = Marker->level;
+	const Quest *entrance = nullptr;
+	if (Marker->isSetLevel) {
+		for (const Quest &quest : Quests) {
+			if (quest._qslvl == Marker->level && quest._qactive != QUEST_NOTAVAIL) {
+				entrance = &quest;
+				routeLevel = quest._qlevel;
+			}
+		}
+		if (entrance == nullptr)
+			return waypoints;
+	}
+
+	auto addTriggers = [&waypoints](interface_mode message) {
+		for (int i = 0; i < numtrigs; i++) {
+			if (trigs[i]._tmsg == message)
+				waypoints.push_back({ trigs[i].position });
+		}
+	};
+
+	if (setlevel) {
+		addTriggers(WM_DIABRTNLVL);
+		return waypoints;
+	}
+	if (currlevel == routeLevel) {
+		if (entrance != nullptr)
+			waypoints.push_back({ entrance->position });
+		if (entrance != nullptr && entrance->_qidx == Q_BETRAYER) {
+			// Lazarus' portal opens there once Cain has the Staff of Lazarus, so the staff is marked too: its
+			// stand until it's taken, and the staff wherever it lies on this level.
+			for (int i = 0; i < ActiveObjectCount; i++) {
+				const Object &object = Objects[ActiveObjects[i]];
+				if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
+					waypoints.push_back({ object.position, true });
+			}
+			for (uint8_t i = 0; i < ActiveItemCount; i++) {
+				if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
+					waypoints.push_back({ Items[ActiveItems[i]].position, true });
+			}
+		}
+		return waypoints;
+	}
+	if (leveltype == DTYPE_TOWN) {
+		// The cathedral entrance, unlocked town warp or open town portal that leaves the fewest levels to walk, up
+		// or down (for dlvl 8, the caves warp and one level up). A portal into the marked quest level itself beats
+		// everything. On a tie a town portal wins, since it was opened partway into its level, and your own portal
+		// over another player's; between stairs and warps, the shallower one.
+		std::optional<Point> best;
+		bool bestIsPortal = false;
+		bool bestIsMine = false;
+		int bestDistance = std::numeric_limits<int>::max();
+		int bestLevel = 0;
+		for (int i = 0; i < numtrigs; i++) {
+			const int leadsTo = trigs[i]._tmsg == WM_DIABNEXTLVL ? 1 : (trigs[i]._tmsg == WM_DIABTOWNWARP ? trigs[i]._tlvl : 0);
+			if (leadsTo == 0)
+				continue;
+			const int distance = std::abs(leadsTo - routeLevel);
+			if (distance < bestDistance || (distance == bestDistance && leadsTo < bestLevel)) {
+				best = trigs[i].position;
+				bestDistance = distance;
+				bestLevel = leadsTo;
+			}
+		}
+		for (const Missile &missile : Missiles) {
+			if (missile._mitype != MissileID::TownPortal || missile._misource < 0 || missile._misource >= MAXPORTAL)
+				continue;
+			const Portal &portal = Portals[missile._misource];
+			if (!portal.open)
+				continue;
+			int distance;
+			if (portal.setlvl) {
+				if (!Marker->isSetLevel || portal.level != Marker->level)
+					continue;
+				distance = -1;
+			} else {
+				distance = std::abs(portal.level - routeLevel);
+			}
+			const bool isMine = missile._misource == MyPlayerId;
+			if (distance < bestDistance || (distance == bestDistance && (!bestIsPortal || (isMine && !bestIsMine)))) {
+				best = missile.position.tile;
+				bestDistance = distance;
+				bestIsPortal = true;
+				bestIsMine = isMine;
+			}
+		}
+		if (best)
+			waypoints.push_back({ *best });
+		return waypoints;
+	}
+	if (routeLevel == 0) {
+		// Back to town, where a marked player is: a town portal on this level if one is open, else the way up.
+		for (const Missile &missile : Missiles) {
+			if (missile._mitype == MissileID::TownPortal)
+				waypoints.push_back({ missile.position.tile });
+		}
+		if (waypoints.empty()) {
+			addTriggers(WM_DIABPREVLVL);
+			addTriggers(WM_DIABTWARPUP);
+		}
+		return waypoints;
+	}
+	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
+	return waypoints;
+}
+
+void RetireFinishedAutomapMarker()
+{
+	if (!IsMarkerOnThisLevel())
+		return;
+	if (Marker->kind == PositionMarker::Kind::Monster) {
+		const Monster &monster = Monsters[Marker->index];
+		if (IsActiveMonster(Marker->index) && monster.hitPoints > 0 && !monster.isInvalid)
+			return;
+	} else if (Marker->kind == PositionMarker::Kind::Object) {
+		if (IsActiveObject(Marker->index) && Objects[Marker->index]._oSelFlag != 0)
+			return;
+	} else {
+		return;
+	}
+	Marker = std::nullopt;
+}
+
+void ClearAutomapMarker()
+{
+	Marker = std::nullopt;
+}
+
+void AnnounceAutomapMarker()
+{
+	if (IsMarkerOnThisLevel() && Marker->kind != PositionMarker::Kind::Player)
+		EventPlrMsg(GetAutomapMarkerText());
+}
+
+std::optional<size_t> GetAutomapMarkedMonster()
+{
+	if (!IsMarkerOnThisLevel() || Marker->kind != PositionMarker::Kind::Monster || !GetAutomapMarkerTile())
+		return std::nullopt;
+	return static_cast<size_t>(Marker->index);
+}
+
+std::optional<Point> GetAutomapMarkerTile()
+{
+	if (!IsMarkerOnThisLevel())
+		return std::nullopt;
+	switch (Marker->kind) {
+	case PositionMarker::Kind::Monster: {
+		const Monster &monster = Monsters[Marker->index];
+		if (!IsActiveMonster(Marker->index) || monster.hitPoints <= 0 || monster.isInvalid)
+			return std::nullopt;
+		return monster.position.tile;
+	}
+	case PositionMarker::Kind::Object:
+		if (!IsActiveObject(Marker->index))
+			return std::nullopt;
+		return Objects[Marker->index].position;
+	case PositionMarker::Kind::Player:
+		return std::nullopt;
+	default:
+		return Marker->tile;
+	}
+}
+
+std::string GetAutomapMarkerText()
+{
+	if (!IsMarkerOnThisLevel())
+		return "";
+	switch (Marker->kind) {
+	case PositionMarker::Kind::Monster: {
+		const Monster &monster = Monsters[Marker->index];
+		if (!IsActiveMonster(Marker->index))
+			return fmt::format(fmt::runtime(_("Marked: m{:d} is not on this level")), Marker->index);
+		if (monster.hitPoints <= 0 || monster.isInvalid)
+			return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d}) is dead")), monster.name(), Marker->index);
+		return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d})")), monster.name(), Marker->index);
+	}
+	case PositionMarker::Kind::Object: {
+		const Object &object = Objects[Marker->index];
+		if (!IsActiveObject(Marker->index))
+			return fmt::format(fmt::runtime(_("Marked: o{:d} is not on this level")), Marker->index);
+		if (object._oSelFlag == 0)
+			return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}, already opened")), Marker->index, object.position.x, object.position.y);
+		return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}")), Marker->index, object.position.x, object.position.y);
+	}
+	case PositionMarker::Kind::Player:
+		return "";
+	default:
+		return fmt::format(fmt::runtime(_("Marked: {:d}, {:d}")), Marker->tile.x, Marker->tile.y);
+	}
+}
 
 void CalculatePanelAreas()
 {

@@ -6,6 +6,7 @@
 #include "automap.h"
 
 #include <cstdint>
+#include <limits>
 
 #include <fmt/format.h>
 
@@ -638,6 +639,66 @@ void SearchAutomapItem(const Surface &out, const Displacement &myPlayerOffset, i
 }
 
 /**
+ * @brief The palette entry closest to a color.
+ */
+uint8_t ClosestPaletteColor(SDL_Color color)
+{
+	uint8_t best = 0;
+	int bestDistance = std::numeric_limits<int>::max();
+	for (int i = 0; i < 256; i++) {
+		const SDL_Color &entry = logical_palette[i];
+		const int red = entry.r - color.r;
+		const int green = entry.g - color.g;
+		const int blue = entry.b - color.b;
+		const int distance = red * red + green * green + blue * blue;
+		if (distance < bestDistance) {
+			bestDistance = distance;
+			best = static_cast<uint8_t>(i);
+		}
+	}
+	return best;
+}
+
+/**
+ * @brief Renders the /pos marker and its waypoints: a small white diamond, or for an errand on the way (the Staff of
+ * Lazarus) an A, the diamond's top half with a crossbar, like the staff's stand seen from the side. White because
+ * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green. A marked monster is
+ * passed with how far into its step it is, as player arrows are, so the diamond glides with it.
+ */
+void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile, bool errand = false, Displacement walking = {})
+{
+	const int px = tile.x - 2 * AutomapOffset.deltaX - ViewPosition.x;
+	const int py = tile.y - 2 * AutomapOffset.deltaY - ViewPosition.y;
+
+	Point screen = {
+		((walking.deltaX + myPlayerOffset.deltaX) * AutoMapScale / 100 / 2) + (px - py) * AmLine(16) + gnScreenWidth / 2,
+		((walking.deltaY + myPlayerOffset.deltaY) * AutoMapScale / 100 / 2) + (px + py) * AmLine(8) + (gnScreenHeight - GetMainPanel().size.height) / 2
+	};
+	if (CanPanelsCoverView()) {
+		if (IsRightPanelOpen())
+			screen.x -= gnScreenWidth / 4;
+		if (IsLeftPanelOpen())
+			screen.x += gnScreenWidth / 4;
+	}
+	screen.y -= AmLine(8);
+
+	const uint8_t color = ClosestPaletteColor({ 255, 255, 255, 255 });
+	const Point left { screen.x - AmLine(8), screen.y };
+	const Point top { screen.x, screen.y - AmLine(4) };
+	const Point bottom { screen.x, screen.y + AmLine(4) };
+	if (errand) {
+		DrawMapLineNE(out, left, AmLine(4), color);
+		DrawMapLineSE(out, top, AmLine(4), color);
+		DrawHorizontalLine(out, { screen.x - AmLine(4), screen.y - AmLine(2) }, 2 * AmLine(4) + 1, color);
+		return;
+	}
+	DrawMapLineNE(out, left, AmLine(4), color);
+	DrawMapLineSE(out, left, AmLine(4), color);
+	DrawMapLineSE(out, top, AmLine(4), color);
+	DrawMapLineNE(out, bottom, AmLine(4), color);
+}
+
+/**
  * @brief Renders an arrow on the automap, centered on and facing the direction of the player.
  */
 void DrawAutomapPlr(const Surface &out, const Displacement &myPlayerOffset, int playerId)
@@ -982,6 +1043,17 @@ void DrawAutomap(const Surface &out)
 	}
 
 	myPlayerOffset.deltaY -= TILE_HEIGHT / 2;
+	if (std::optional<size_t> markedMonster = GetAutomapMarkedMonster()) {
+		// Placed the way DrawAutomapPlr places a player's arrow: the game moves monsters through their steps like players.
+		const Monster &monster = Monsters[*markedMonster];
+		const Point tile = monster.mode == MonsterMode::MoveSideways ? monster.position.future : monster.position.tile;
+		const Displacement walking = monster.isWalking() ? GetOffsetForWalking(monster.animInfo, monster.direction) : Displacement {};
+		DrawAutomapMarker(out, myPlayerOffset, tile, false, walking);
+	} else if (std::optional<Point> marked = GetAutomapMarkerTile()) {
+		DrawAutomapMarker(out, myPlayerOffset, *marked);
+	}
+	for (const AutomapWaypoint &waypoint : GetAutomapWaypoints())
+		DrawAutomapMarker(out, myPlayerOffset, waypoint.tile, waypoint.errand);
 	if (AutoMapShowItems)
 		SearchAutomapItem(out, myPlayerOffset, 8, [](Point position) { return dItem[position.x][position.y] != 0; });
 #ifdef _DEBUG

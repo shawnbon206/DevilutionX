@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include <SDL.h>
 
@@ -119,6 +120,56 @@ void DrawManaFlaskLower(const Surface &out);
  * Controls drawing of current / max values (health, mana) within the control panel.
  */
 void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue);
+
+/**
+ * @brief Marks the target of a seed search code ("16:m59", "s5:m40" or "9:68,76") for when that level is reached.
+ * @return false if the text isn't a valid level and target
+ */
+bool SetAutomapMarkerFromCode(string_view levelAndTarget);
+
+/**
+ * @brief Retires the marker once its target is done: the marked monster killed or the marked object opened, which
+ * can only be seen while on its level. Runs every game tick. A marked tile stays until /pos off.
+ */
+void RetireFinishedAutomapMarker();
+
+/**
+ * @brief Removes the automap marker, so one game's marker doesn't carry over into the next.
+ */
+void ClearAutomapMarker();
+
+/**
+ * @brief Shows what /pos or a seed code marked on this level, so arriving on the level says which monster or object it is.
+ */
+void AnnounceAutomapMarker();
+
+/**
+ * @brief The monster marked with /pos, when it's alive on this level, so the automap can move the marker with it
+ * through each step, as the automap moves the player arrows.
+ */
+std::optional<size_t> GetAutomapMarkedMonster();
+
+/**
+ * @brief The tile marked with /pos on this level: a fixed tile, or where the marked monster or object is now.
+ */
+std::optional<Point> GetAutomapMarkerTile();
+
+/**
+ * @brief When the marked target is on another level, the stairs or entrance on this level that lead toward it:
+ * down stairs above it, up stairs below it, the entrance or town warp that gets closest in town, and on the level
+ * a marked quest level is entered from, that entrance.
+ */
+struct AutomapWaypoint {
+	Point tile;
+	/** Something to pick up on the way rather than a way forward (the Staff of Lazarus), drawn differently. */
+	bool errand = false;
+};
+std::vector<AutomapWaypoint> GetAutomapWaypoints();
+
+/**
+ * @brief A line describing what /pos marked on this level, or empty.
+ */
+std::string GetAutomapMarkerText();
 
 /**
  * @brief calls on the active player object to update HP/Mana percentage variables
