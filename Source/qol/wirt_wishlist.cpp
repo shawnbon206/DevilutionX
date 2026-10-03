@@ -989,19 +989,19 @@ void HuntAdria(int lvl)
 	while (true) {
 		SpawnWitch(lvl);
 		restocks++;
+		// Name everything she has that fits: "Adria has 3: Book of Teleport, Book of Golem, Book of Stone Curse".
 		int found = 0;
-		const Item *first = nullptr;
+		std::string names;
 		for (const Item &item : witchitem) {
 			if (MatchesWish(*AdriaWish, item)) {
 				found++;
-				if (first == nullptr)
-					first = &item;
+				names += StrCat(names.empty() ? "" : ", ", ItemReport(item));
 			}
 		}
-		if (first != nullptr) {
-			const std::string more = found > 1 ? fmt::format(fmt::runtime(_(" and {:d} more")), found - 1) : "";
-			EventPlrMsg(restocks == 1 ? fmt::format(fmt::runtime(_("Adria has {:s}{:s}.")), ItemReport(*first), more)
-			                          : fmt::format(fmt::runtime(_("Adria has {:s}{:s} after {:d} restocks.")), ItemReport(*first), more, restocks));
+		if (found > 0) {
+			const std::string what = found == 1 ? names : fmt::format(fmt::runtime(_("{:d}: {:s}")), found, names);
+			EventPlrMsg(restocks == 1 ? fmt::format(fmt::runtime(_("Adria has {:s}.")), what)
+			                          : fmt::format(fmt::runtime(_("Adria has {:s} (after {:d} restocks).")), what, restocks));
 			break;
 		}
 		if (AdriaRollsLeft <= 0) {
