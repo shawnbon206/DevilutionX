@@ -921,35 +921,14 @@ void Render(const UiEdit &uiEdit)
 		return;
 	}
 
-	// Text longer than the box scrolls sideways to keep the cursor in view, instead of wrapping onto a line below
-	// the box where it can't be seen.
-	const string_view text = uiEdit.m_value;
-	const GameFontTables size = GetFontSizeFromUiFlags(uiEdit.GetFlags());
-	const int cursorWidth = GetLineWidth("_", size, 1);
-	const auto isContinuationByte = [&text](size_t i) { return i < text.size() && (static_cast<uint8_t>(text[i]) & 0xC0) == 0x80; };
-	const size_t cursor = std::min(uiEdit.m_cursor.position, text.size());
-	size_t first = 0;
-	while (first < cursor && GetLineWidth(text.substr(first, cursor - first), size, 1) + cursorWidth > rect.size.width) {
-		do {
-			first++;
-		} while (isContinuationByte(first));
-	}
-	size_t last = text.size();
-	while (last > cursor && GetLineWidth(text.substr(first, last - first), size, 1) > rect.size.width) {
-		do {
-			last--;
-		} while (last > cursor && isContinuationByte(last));
-	}
-	const auto shown = [first](size_t position) { return static_cast<int>(position > first ? position - first : 0); };
-
 	const Surface &out = Surface(DiabloUiSurface());
-	DrawString(out, text.substr(first, last - first), rect,
+	DrawString(out, uiEdit.m_value, rect,
 	    {
 	        uiEdit.GetFlags(),
 	        /*spacing=*/1,
 	        /*lineHeight=*/-1,
-	        /*cursorPosition=*/shown(cursor),
-	        /*highlightRange=*/ { shown(uiEdit.m_cursor.selection.begin), shown(uiEdit.m_cursor.selection.end) },
+	        /*cursorPosition=*/static_cast<int>(uiEdit.m_cursor.position),
+	        /*highlightRange=*/ { static_cast<int>(uiEdit.m_cursor.selection.begin), static_cast<int>(uiEdit.m_cursor.selection.end) },
 	        /*highlightColor=*/126,
 	    });
 }
