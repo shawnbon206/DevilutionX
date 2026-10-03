@@ -883,6 +883,23 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 	return waypoints;
 }
 
+void RetireFinishedAutomapMarker()
+{
+	if (!IsMarkerOnThisLevel())
+		return;
+	if (Marker->kind == PositionMarker::Kind::Monster) {
+		const Monster &monster = Monsters[Marker->index];
+		if (IsActiveMonster(Marker->index) && monster.hitPoints > 0 && !monster.isInvalid)
+			return;
+	} else if (Marker->kind == PositionMarker::Kind::Object) {
+		if (IsActiveObject(Marker->index) && Objects[Marker->index]._oSelFlag != 0)
+			return;
+	} else {
+		return;
+	}
+	Marker = std::nullopt;
+}
+
 void ClearAutomapMarker()
 {
 	Marker = std::nullopt;

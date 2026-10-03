@@ -1437,6 +1437,7 @@ void GameLogic()
 	sound_update();
 	CheckTriggers();
 	CheckQuests();
+	RetireFinishedAutomapMarker();
 	RedrawViewport();
 	pfile_update(false);
 

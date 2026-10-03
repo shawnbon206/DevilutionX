@@ -128,6 +128,12 @@ void DrawFlaskValues(const Surface &out, Point pos, int currValue, int maxValue)
 bool SetAutomapMarkerFromCode(string_view levelAndTarget);
 
 /**
+ * @brief Retires the marker once its target is done: the marked monster killed or the marked object opened, which
+ * can only be seen while on its level. Runs every game tick. A marked tile stays until /pos off.
+ */
+void RetireFinishedAutomapMarker();
+
+/**
  * @brief Removes the automap marker, so one game's marker doesn't carry over into the next.
  */
 void ClearAutomapMarker();
