@@ -2195,7 +2195,6 @@ void SetupTownStores()
 
 	l = clamp(l + 2, 6, 16);
 	SpawnSmith(l);
-	SpawnWitch(l);
 	HuntAdria(l);
 	SpawnHealer(l);
 	SpawnBoy(myPlayer._pLevel);

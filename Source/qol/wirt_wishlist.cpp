@@ -781,8 +781,15 @@ bool MatchesWish(const Wishlist &wish, const Item &item)
 
 std::optional<Wishlist> AdriaWish;
 
-/** How many times Adria restocks at most looking for a wanted item: each stock is 7 to 9 items. */
-constexpr int AdriaStockTries = 10000;
+/** How many items Adria rolls at most in one hunt, over all her restocks and slot rerolls, so it can't hang the game. */
+constexpr int AdriaRollBudget = 200000;
+
+/** What's left of the budget in the hunt going on; 0 when none is. */
+int AdriaRollsLeft = 0;
+
+/** The kinds the hunt rerolls slots of: those the wishlist names, or that it could fit at the stock level. */
+bool AdriaWantsStaff = false;
+bool AdriaWantsBook = false;
 
 /** Her stock level, as SetupTownStores works it out: half your character level in multiplayer, your deepest dungeon level in single player, plus 2, from 6 to 16. */
 int AdriaStockLevel()
@@ -919,22 +926,81 @@ bool WirtWishlistMatches(const Item &item)
 	return !Wish || MatchesWish(*Wish, item);
 }
 
+void RecheckWirtWishlist()
+{
+	if (!Wish)
+		return;
+	if (const std::string reason = WhyImpossible(*Wish); !reason.empty()) {
+		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's wishlist can't come up any more: {:s} Wishlist cleared.")), reason));
+		Wish = std::nullopt;
+	}
+}
+
+bool IsAdriaWishlistSlot(const Item &item)
+{
+	if (AdriaRollsLeft <= 0 || !AdriaWish)
+		return false;
+	const std::string kind = KindName(AllItemsList[item.IDidx]);
+	return (kind == "staff" && AdriaWantsStaff) || (kind == "book" && AdriaWantsBook);
+}
+
+bool RerollAdriaWishlistSlot(const Item &item)
+{
+	if (AdriaRollsLeft <= 0 || MatchesWish(*AdriaWish, item))
+		return false;
+	AdriaRollsLeft--;
+	return true;
+}
+
 void HuntAdria(int lvl)
 {
-	if (!AdriaWish)
-		return;
-	for (int stock = 0; stock < AdriaStockTries; stock++) {
-		if (stock > 0)
-			SpawnWitch(lvl);
-		for (const Item &item : witchitem) {
-			if (MatchesWish(*AdriaWish, item)) {
-				EventPlrMsg(stock == 0 ? fmt::format(fmt::runtime(_("Adria has {:s}.")), ItemReport(item))
-				                       : fmt::format(fmt::runtime(_("Adria has {:s} after {:d} restocks.")), ItemReport(item), stock + 1));
-				return;
-			}
+	if (AdriaWish) {
+		if (const std::string reason = WhyAdriaCant(*AdriaWish); !reason.empty()) {
+			EventPlrMsg(fmt::format(fmt::runtime(_("Adria's wishlist can't come up any more: {:s} Wishlist cleared.")), reason));
+			AdriaWish = std::nullopt;
 		}
 	}
-	EventPlrMsg(fmt::format(fmt::runtime(_("Adria had nothing on your wishlist in {:d} restocks.")), AdriaStockTries));
+	if (!AdriaWish) {
+		SpawnWitch(lvl);
+		return;
+	}
+	// Reroll the slots of a kind the wishlist can be, judged with the wishlist narrowed to that kind.
+	const auto wants = [lvl](const char *kind) {
+		Wishlist narrowed = *AdriaWish;
+		if (!narrowed.types.empty() && std::find(narrowed.types.begin(), narrowed.types.end(), kind) == narrowed.types.end())
+			return false;
+		narrowed.types = { kind };
+		return AdriaCanSell(narrowed, lvl);
+	};
+	AdriaWantsStaff = wants("staff");
+	AdriaWantsBook = wants("book");
+	AdriaRollsLeft = AdriaRollBudget;
+	int restocks = 0;
+	while (true) {
+		SpawnWitch(lvl);
+		restocks++;
+		int found = 0;
+		const Item *first = nullptr;
+		for (const Item &item : witchitem) {
+			if (MatchesWish(*AdriaWish, item)) {
+				found++;
+				if (first == nullptr)
+					first = &item;
+			}
+		}
+		if (first != nullptr) {
+			const std::string more = found > 1 ? fmt::format(fmt::runtime(_(" and {:d} more")), found - 1) : "";
+			EventPlrMsg(restocks == 1 ? fmt::format(fmt::runtime(_("Adria has {:s}{:s}.")), ItemReport(*first), more)
+			                          : fmt::format(fmt::runtime(_("Adria has {:s}{:s} after {:d} restocks.")), ItemReport(*first), more, restocks));
+			break;
+		}
+		if (AdriaRollsLeft <= 0) {
+			EventPlrMsg(fmt::format(fmt::runtime(_("Adria had nothing on your wishlist in {:d} restocks.")), restocks));
+			break;
+		}
+		AdriaRollsLeft -= 9;
+	}
+	AdriaRollsLeft = 0;
 }
 
 std::string TextCmdAdria(string_view parameter)
@@ -960,9 +1026,7 @@ std::string TextCmdAdria(string_view parameter)
 	// A fresh start, as the stores get one each time you come to town.
 	const uint32_t rngState = GetLCGEngineState();
 	SetRndSeed(SDL_GetTicks());
-	const int level = AdriaStockLevel();
-	SpawnWitch(level);
-	HuntAdria(level);
+	HuntAdria(AdriaStockLevel());
 	SetRndSeed(rngState);
 	return fmt::format(fmt::runtime(_("Adria is looking for:{:s}")), AdriaWish->text);
 }
