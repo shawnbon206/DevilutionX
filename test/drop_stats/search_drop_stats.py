@@ -45,7 +45,8 @@ examples:
   drops.ps1 --prefix Bountiful --suffix Apocalypse --min-roll 90
 
 Names are not case-sensitive; quote names with spaces or apostrophes. "of " in suffixes is optional, and the start
-of a name is enough when only one name starts that way. A staff's spell counts as its suffix, its charges as the roll.
+of a name is enough when only one name starts that way. A staff's or book's spell counts as its suffix; a staff's
+charges are its roll. Books: --type book --suffix Apocalypse.
 """
 
 
@@ -66,7 +67,7 @@ def parse_args():
 
     wishlist = parser.add_argument_group('item requirements')
     wishlist.add_argument('--type', nargs='+', default=[], metavar='TYPE',
-                          help='ring amulet sword axe mace bow staff helm shield light_armor medium_armor heavy_armor')
+                          help='ring amulet sword axe mace bow staff helm shield light_armor medium_armor heavy_armor book')
     wishlist.add_argument('--base', nargs='+', default=[], metavar='NAME', help='base items, e.g. Maul "Great Axe"')
     wishlist.add_argument('--prefix', nargs='+', default=[], metavar='NAME', help='the item\'s prefix must be one of these')
     wishlist.add_argument('--suffix', nargs='+', default=[], metavar='NAME', help='the item\'s suffix (or staff spell) must be one of these')
@@ -124,7 +125,7 @@ def check_names(args):
     # A staff's spell stands where a suffix would ("Long Staff of Apocalypse"), so spells count as suffixes.
     known['suffix'].update(known.pop('spell', {}))
     known['type'] = {t: t for t in ('ring', 'amulet', 'sword', 'axe', 'mace', 'bow', 'staff', 'helm', 'shield', 'light_armor',
-                                    'medium_armor', 'heavy_armor')}
+                                    'medium_armor', 'heavy_armor', 'book')}
     for kind, names in (('type', args.type), ('base', args.base), ('prefix', args.prefix), ('suffix', args.suffix), ('unique', args.unique)):
         for i, spec in enumerate(names):
             typed, minimum = split_minimum(spec)

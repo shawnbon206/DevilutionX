@@ -819,6 +819,7 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	const std::string prefixText = prefix.affix != nullptr ? prefixPower : "";
 	const std::string suffixText = suffix.affix != nullptr ? suffixPower : "";
 	const bool isUnique = item._iMagical == ITEM_QUALITY_UNIQUE;
+	const bool isBook = item._iMiscId == IMISC_BOOK;
 	const bool hasSpell = item._iSpell != SpellID::Null && item._iMiscId == IMISC_STAFF;
 
 	// A staff's spell takes the suffix's place (such a staff never has a suffix: GetStaffSpell), so it's written
@@ -838,11 +839,19 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 		suffixValue = std::to_string(item._iMaxCharges);
 		suffixRoll = std::to_string(range > 0 ? std::clamp((charges - spell.sStaffMin) * 100 / range, 0, 100) : 100);
 	}
+	// A book's spell is in its name the same way ("Book of Apocalypse"), and has nothing that rolls.
+	if (isBook && item._iSpell != SpellID::Null) {
+		suffixName = CsvField(GetSpellData(item._iSpell).sNameText);
+		suffixShown = "";
+		suffixValue = "";
+		suffixRoll = "100";
+	}
 
 	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
 	    gameSeed, static_cast<int>(difficulty), level.dlvl, level.setLevel == SL_NONE ? "" : CsvField(GetSetLevelQuest(level.setLevel).name),
 	    SourceKindName(drop.kind), CsvField(drop.sourceName), drop.sourceIndex,
-	    ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL, isUnique ? "unique" : "magic",
+	    isBook ? "book" : ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL,
+	    isUnique ? "unique" : (item._iMagical == ITEM_QUALITY_MAGIC ? "magic" : "normal"),
 	    prefix.affix != nullptr ? CsvField(prefix.affix->PLName) : "", CsvField(prefixText), prefix.affix != nullptr ? prefixNumbers[0] : "", prefix.affix != nullptr ? prefixNumbers[1] : "",
 	    suffixName, suffixShown, suffixValue, suffix.affix != nullptr ? suffixNumbers[1] : "",
 	    isUnique ? CsvField(UniqueItems[item._iUid].UIName) : "", hasSpell ? CsvField(GetSpellData(item._iSpell).sNameText) : "", hasSpell ? std::to_string(item._iMaxCharges) : "",
@@ -1308,7 +1317,8 @@ TEST_F(DropStats, SearchWorker)
 			for (_difficulty difficulty : { DIFF_NORMAL, DIFF_NIGHTMARE, DIFF_HELL }) {
 				sgGameInitInfo.nDifficulty = difficulty;
 				for (const Drop &drop : DryRunLevelDrops()) {
-					if (drop.item._iMagical == ITEM_QUALITY_NORMAL)
+					// Plain items aren't worth searching for, except books (normal quality, but their spell matters).
+					if (drop.item._iMagical == ITEM_QUALITY_NORMAL && drop.item._iMiscId != IMISC_BOOK)
 						continue;
 					rows += "I,";
 					rows += ItemCsvRow(gameSeed, difficulty, level, drop);
