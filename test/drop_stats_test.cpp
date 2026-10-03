@@ -821,16 +821,34 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	const bool isUnique = item._iMagical == ITEM_QUALITY_UNIQUE;
 	const bool hasSpell = item._iSpell != SpellID::Null && item._iMiscId == IMISC_STAFF;
 
+	// A staff's spell takes the suffix's place (such a staff never has a suffix: GetStaffSpell), so it's written
+	// as the suffix, its charges as the value, and the roll is where the charges fell in the spell's range,
+	// before a Plentiful or Bountiful prefix multiplied them.
+	std::string suffixName = suffix.affix != nullptr ? CsvField(suffix.affix->PLName) : "";
+	std::string suffixShown = CsvField(suffixText);
+	std::string suffixValue = suffix.affix != nullptr ? suffixNumbers[0] : "";
+	std::string suffixRoll = RollText(suffix.roll);
+	if (hasSpell && suffix.affix == nullptr && !isUnique) {
+		const SpellData &spell = GetSpellData(item._iSpell);
+		const int multiplier = prefix.affix != nullptr && prefix.affix->power.type == IPL_CHARGES ? std::max(prefix.affix->power.param1, 1) : 1;
+		const int charges = item._iMaxCharges / multiplier;
+		const int range = spell.sStaffMax - spell.sStaffMin;
+		suffixName = CsvField(spell.sNameText);
+		suffixShown = fmt::format("{} charges", item._iMaxCharges);
+		suffixValue = std::to_string(item._iMaxCharges);
+		suffixRoll = std::to_string(range > 0 ? std::clamp((charges - spell.sStaffMin) * 100 / range, 0, 100) : 100);
+	}
+
 	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
 	    gameSeed, static_cast<int>(difficulty), level.dlvl, level.setLevel == SL_NONE ? "" : CsvField(GetSetLevelQuest(level.setLevel).name),
 	    SourceKindName(drop.kind), CsvField(drop.sourceName), drop.sourceIndex,
 	    ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL, isUnique ? "unique" : "magic",
 	    prefix.affix != nullptr ? CsvField(prefix.affix->PLName) : "", CsvField(prefixText), prefix.affix != nullptr ? prefixNumbers[0] : "", prefix.affix != nullptr ? prefixNumbers[1] : "",
-	    suffix.affix != nullptr ? CsvField(suffix.affix->PLName) : "", CsvField(suffixText), suffix.affix != nullptr ? suffixNumbers[0] : "", suffix.affix != nullptr ? suffixNumbers[1] : "",
+	    suffixName, suffixShown, suffixValue, suffix.affix != nullptr ? suffixNumbers[1] : "",
 	    isUnique ? CsvField(UniqueItems[item._iUid].UIName) : "", hasSpell ? CsvField(GetSpellData(item._iSpell).sNameText) : "", hasSpell ? std::to_string(item._iMaxCharges) : "",
 	    item._iMinDam, item._iMaxDam, item._iAC, item._iMaxDur, item._iMinStr, item._iMinMag, item._iMinDex,
 	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo,
-	    RollText(prefix.roll), RollText(suffix.roll),
+	    RollText(prefix.roll), suffixRoll,
 	    drop.position.x, drop.position.y);
 }
 
