@@ -118,7 +118,7 @@ def check_names(args):
     """
     Checks every name against the game's, before any time is spent simulating. The start of a name is enough when
     only one name starts that way ("apoc" is Apocalypse); the name is filled in. Otherwise the search stops, listing
-    the names it could be.
+    the names it could be. Apostrophes can be left out ("kings" is King's), as PowerShell takes one for a quote.
     """
     known = {}
     with open(os.path.join(args.bin, 'names.csv'), encoding='utf-8', newline='') as f:
@@ -136,7 +136,9 @@ def check_names(args):
                 name = name[3:]
             if name in known[kind]:
                 continue
-            starting = sorted(n for n in known[kind] if n.startswith(name))
+            bare = lambda n: n.replace("'", '')
+            same = [n for n in known[kind] if bare(n) == bare(name)]
+            starting = same or sorted(n for n in known[kind] if bare(n).startswith(bare(name)))
             if len(starting) == 1:
                 full = known[kind][starting[0]]
                 print(f'{kind} "{typed}" = {full}')
