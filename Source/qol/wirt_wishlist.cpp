@@ -578,6 +578,34 @@ std::vector<std::string> SoldTypes(const Wishlist &wish)
 
 constexpr int MaxCharacterLevel = 50;
 
+/**
+ * A base's own stats, which is what makes one better than another (not its gold value: a Tower Shield rolls 12-20
+ * armor, a Gothic Shield 14-18, and is worth more): "armor 12-20" or "damage 6-20".
+ */
+std::string BaseStats(const ItemData &base)
+{
+	if (base.iMaxAC > 0)
+		return fmt::format(fmt::runtime(_("armor {:d}-{:d}")), base.iMinAC, base.iMaxAC);
+	if (base.iMaxDam > 0)
+		return fmt::format(fmt::runtime(_("damage {:d}-{:d}")), base.iMinDam, base.iMaxDam);
+	return "";
+}
+
+/** The best a base can roll: its most armor or most damage, then its least. */
+std::pair<int, int> BaseBest(const ItemData &base)
+{
+	return base.iMaxAC > 0 ? std::make_pair<int, int>(base.iMaxAC, base.iMinAC) : std::make_pair<int, int>(base.iMaxDam, base.iMinDam);
+}
+
+const ItemData *BaseNamed(const std::string &name)
+{
+	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+		if (AllItemsList[j].iName == name && AllItemsList[j].iRnd != IDROP_NEVER)
+			return &AllItemsList[j];
+	}
+	return nullptr;
+}
+
 /** What Wirt asks for an item worth this much: half again its value (StoreBoy, BoyBuyItem). His limit is on the value. */
 int WirtAskingPrice(int value)
 {
@@ -759,10 +787,10 @@ std::string ListBases(string_view text)
 			else if (data.iMinMLvl < (*same)->iMinMLvl)
 				*same = &data;
 		}
-		std::sort(bases.begin(), bases.end(), [](const ItemData *a, const ItemData *b) { return a->iValue > b->iValue; });
+		std::sort(bases.begin(), bases.end(), [](const ItemData *a, const ItemData *b) { return BaseBest(*a) > BaseBest(*b); });
 		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}:")), wish->text));
 		for (const ItemData *base : bases)
-			EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  level {:d}+")), base->iName, FormatInteger(base->iValue), base->iMinMLvl));
+			EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  level {:d}+")), base->iName, BaseStats(*base), base->iMinMLvl));
 		return "";
 	}
 	// Only what can never happen stops the list; outside the level where Wirt rolls the affixes it's priced as within
@@ -792,7 +820,9 @@ std::string ListBases(string_view text)
 	constexpr size_t Shown = 8;
 	for (size_t i = 0; i < under.size() && i < Shown; i++) {
 		const size_t index = under.size() - 1 - i;
-		EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  levels {:s}")), under[index].first, FormatInteger(WirtAskingPrice(under[index].second)), levelsOf[index]));
+		const ItemData *base = BaseNamed(under[index].first);
+		EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  {:s}  levels {:s}")), under[index].first, base != nullptr ? BaseStats(*base) : "",
+		    FormatInteger(WirtAskingPrice(under[index].second)), levelsOf[index]));
 	}
 	if (under.size() > Shown)
 		EventPlrMsg(fmt::format(fmt::runtime(_("  and {:d} cheaper")), under.size() - Shown));
