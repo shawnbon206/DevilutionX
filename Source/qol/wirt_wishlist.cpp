@@ -733,9 +733,37 @@ std::string ListBases(string_view text)
 	const std::optional<Wishlist> wish = ParseWishlist(text, error);
 	if (!wish)
 		return error;
-	// Wirt only sells magic items, and their price comes from their affixes; without any named there's nothing to price.
-	if (wish->prefixes.empty() && wish->suffixes.empty())
-		return std::string(_("/wirt bases needs a --prefix or --suffix: the price comes from them."));
+	// Without affixes there's no price to give (it comes from them), so just the bases, best (dearest base) first, with
+	// the character level the ones above yours open at.
+	if (wish->prefixes.empty() && wish->suffixes.empty()) {
+		const std::vector<std::string> sold = SoldTypes(*wish);
+		if (sold.empty())
+			return gbIsMultiplayer ? std::string(_("Wirt doesn't sell those: no staves, and no rings or amulets in multiplayer.")) : std::string(_("Wirt doesn't sell staves."));
+		std::vector<const ItemData *> bases;
+		for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+			const ItemData &data = AllItemsList[j];
+			const std::string type(ItemTypeName(data.itype));
+			if (type.empty() || data.iRnd == IDROP_NEVER || std::find(sold.begin(), sold.end(), type) == sold.end())
+				continue;
+			if (!wish->bases.empty() && std::find(wish->bases.begin(), wish->bases.end(), AsciiStrToLower(data.iName)) == wish->bases.end())
+				continue;
+			const auto same = std::find_if(bases.begin(), bases.end(), [&data](const ItemData *base) { return std::string_view(base->iName) == data.iName; });
+			if (same == bases.end())
+				bases.push_back(&data);
+			else if (data.iMinMLvl < (*same)->iMinMLvl)
+				*same = &data;
+		}
+		std::sort(bases.begin(), bases.end(), [](const ItemData *a, const ItemData *b) { return a->iValue > b->iValue; });
+		const int level = MyPlayer->_pLevel;
+		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}, best first; you're level {:d}:")), wish->text, level));
+		for (const ItemData *base : bases) {
+			if (base->iMinMLvl > level)
+				EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  (from character level {:d})")), base->iName, base->iMinMLvl));
+			else
+				EventPlrMsg(StrCat("  ", base->iName));
+		}
+		return "";
+	}
 	// Only what can never happen stops the list; outside the level where Wirt rolls the affixes it's priced as within
 	// it, with a note, so you can see ahead.
 	if (const std::string reason = WhyImpossible(*wish, false, false); !reason.empty())
