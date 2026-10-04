@@ -49,6 +49,8 @@ struct Wishlist {
 	std::vector<WantedAffix> suffixes;
 	bool either = false;
 	std::optional<int> minRoll;
+	/** --ac: the least base armor an armor, helm or shield has to have rolled. */
+	std::optional<int> minAc;
 	/** The wishlist as given, with names filled in, to show back. */
 	std::string text;
 	std::string lastShown;
@@ -385,20 +387,20 @@ std::optional<Wishlist> ParseWishlist(string_view text, std::string &error)
 	Wishlist wish;
 	std::string option;
 	for (const std::string &token : Tokens(text)) {
-		// Options, long or short to save chat space: --type -t, --base -b, --prefix -p, --suffix -s, --either -e, --min-roll -m.
+		// Options, long or short to save chat space: --type -t, --base -b, --prefix -p, --suffix -s, --either -e, --min-roll -m, --ac -a.
 		const bool isShort = token.size() == 2 && token[0] == '-' && token[1] != '-';
 		if (token.rfind("--", 0) == 0 || isShort) {
 			option = AsciiStrToLower(token.substr(isShort ? 1 : 2));
 			if (isShort) {
-				constexpr std::array<std::pair<char, const char *>, 6> Shorts = { { { 't', "type" }, { 'b', "base" }, { 'p', "prefix" }, { 's', "suffix" }, { 'e', "either" }, { 'm', "min-roll" } } };
+				constexpr std::array<std::pair<char, const char *>, 7> Shorts = { { { 't', "type" }, { 'b', "base" }, { 'p', "prefix" }, { 's', "suffix" }, { 'e', "either" }, { 'm', "min-roll" }, { 'a', "ac" } } };
 				const auto found = std::find_if(Shorts.begin(), Shorts.end(), [&option](const auto &entry) { return option[0] == entry.first; });
 				option = found != Shorts.end() ? found->second : option;
 			}
 			if (option == "either") {
 				wish.either = true;
 				option.clear();
-			} else if (!IsAnyOf(option, "type", "base", "prefix", "suffix", "min-roll")) {
-				error = fmt::format(fmt::runtime(_("Unknown option {:s}. Use -t, -b, -p, -s, -e, -m (or --type, --base, --prefix, --suffix, --either, --min-roll).")), token);
+			} else if (!IsAnyOf(option, "type", "base", "prefix", "suffix", "min-roll", "ac")) {
+				error = fmt::format(fmt::runtime(_("Unknown option {:s}. Use -t, -b, -p, -s, -e, -m, -a (or --type, --base, --prefix, --suffix, --either, --min-roll, --ac).")), token);
 				return std::nullopt;
 			}
 			continue;
@@ -407,13 +409,22 @@ std::optional<Wishlist> ParseWishlist(string_view text, std::string &error)
 			error = fmt::format(fmt::runtime(_("\"{:s}\" needs an option before it, such as --prefix.")), token);
 			return std::nullopt;
 		}
-		if (option == "min-roll") {
-			const int roll = std::atoi(token.c_str());
-			if (token.empty() || !std::all_of(token.begin(), token.end(), [](char c) { return c >= '0' && c <= '9'; }) || roll > 100) {
-				error = std::string(_("--min-roll takes a percentage from 0 to 100."));
-				return std::nullopt;
+		if (IsAnyOf(option, "min-roll", "ac")) {
+			const bool isNumber = !token.empty() && std::all_of(token.begin(), token.end(), [](char c) { return c >= '0' && c <= '9'; });
+			const int number = std::atoi(token.c_str());
+			if (option == "min-roll") {
+				if (!isNumber || number > 100) {
+					error = std::string(_("--min-roll takes a percentage from 0 to 100."));
+					return std::nullopt;
+				}
+				wish.minRoll = number;
+			} else {
+				if (!isNumber) {
+					error = std::string(_("--ac takes the least base armor, such as 20."));
+					return std::nullopt;
+				}
+				wish.minAc = number;
 			}
-			wish.minRoll = roll;
 			option.clear();
 			continue;
 		}
@@ -444,6 +455,8 @@ std::optional<Wishlist> ParseWishlist(string_view text, std::string &error)
 		wish.text += ", either";
 	if (wish.minRoll)
 		wish.text += fmt::format(", min-roll {:d}", *wish.minRoll);
+	if (wish.minAc)
+		wish.text += fmt::format(", base armor {:d}+", *wish.minAc);
 	return wish;
 }
 
@@ -544,7 +557,8 @@ std::vector<std::pair<std::string, int>> BasePrices(const Wishlist &wish, const 
 	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
 		const ItemData &base = AllItemsList[j];
 		const std::string type(ItemTypeName(base.itype));
-		if (type.empty() || base.iRnd == IDROP_NEVER || (level >= 0 && base.iMinMLvl > level) || std::find(sold.begin(), sold.end(), type) == sold.end())
+		if (type.empty() || base.iRnd == IDROP_NEVER || (level >= 0 && base.iMinMLvl > level) || std::find(sold.begin(), sold.end(), type) == sold.end()
+		    || (wish.minAc && base.iMaxAC < *wish.minAc))
 			continue;
 		if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(base.iName)) == wish.bases.end())
 			continue;
@@ -654,7 +668,8 @@ std::vector<int> WishLevels(const Wishlist &wish, const std::vector<std::string>
 		for (int j = IDI_GOLD; j <= IDI_LAST && !fits; j++) {
 			const ItemData &base = AllItemsList[j];
 			const std::string type(ItemTypeName(base.itype));
-			if (type.empty() || base.iRnd == IDROP_NEVER || base.iMinMLvl > level || std::find(sold.begin(), sold.end(), type) == sold.end())
+			if (type.empty() || base.iRnd == IDROP_NEVER || base.iMinMLvl > level || std::find(sold.begin(), sold.end(), type) == sold.end()
+			    || (wish.minAc && base.iMaxAC < *wish.minAc))
 				continue;
 			if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(base.iName)) == wish.bases.end())
 				continue;
@@ -719,6 +734,21 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool che
 	const std::vector<std::string> sold = SoldTypes(wish);
 	if (sold.empty())
 		return gbIsMultiplayer ? std::string(_("Wirt doesn't sell those: no staves, and no rings or amulets in multiplayer.")) : std::string(_("Wirt doesn't sell staves."));
+	if (wish.minAc) {
+		int most = 0;
+		for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+			const ItemData &base = AllItemsList[j];
+			const std::string type(ItemTypeName(base.itype));
+			if (base.iRnd == IDROP_NEVER || std::find(sold.begin(), sold.end(), type) == sold.end())
+				continue;
+			if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(base.iName)) == wish.bases.end())
+				continue;
+			most = std::max(most, static_cast<int>(base.iMaxAC));
+		}
+		if (most < *wish.minAc)
+			return most == 0 ? std::string(_("--ac is for armor, helms and shields."))
+			                 : fmt::format(fmt::runtime(_("No base on this list rolls {:d} armor; the most is {:d}.")), *wish.minAc, most);
+	}
 	AffixItemType kinds = AffixItemType::None;
 	for (const std::string &type : sold)
 		kinds |= AffixKindsFor(type);
@@ -794,7 +824,7 @@ std::string ListBases(string_view text)
 		for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
 			const ItemData &data = AllItemsList[j];
 			const std::string type(ItemTypeName(data.itype));
-			if (type.empty() || data.iRnd == IDROP_NEVER || std::find(sold.begin(), sold.end(), type) == sold.end())
+			if (type.empty() || data.iRnd == IDROP_NEVER || std::find(sold.begin(), sold.end(), type) == sold.end() || (wish->minAc && data.iMaxAC < *wish->minAc))
 				continue;
 			if (!wish->bases.empty() && std::find(wish->bases.begin(), wish->bases.end(), AsciiStrToLower(data.iName)) == wish->bases.end())
 				continue;
@@ -854,20 +884,7 @@ std::string ListBases(string_view text)
 	return "";
 }
 
-/**
- * How well an armor, helm or shield rolled its own armor class, 0 to 100, between its base's least and most (GetItemAttrs:
- * a Gothic Shield's 14 to 18, so 16 is 50); the armor-class percentage of an affix is kept apart from it. Items without a
- * base roll count as 100.
- */
-int BaseArmorRoll(const Item &item)
-{
-	const ItemData &base = AllItemsList[item.IDidx];
-	if (base.iMaxAC <= base.iMinAC)
-		return 100;
-	return std::clamp((item._iAC - base.iMinAC) * 100 / (base.iMaxAC - base.iMinAC), 0, 100);
-}
-
-/** Whether an item fits a wishlist: its type and base, its wanted affixes (a staff's or book's spell as its suffix), and with --min-roll, its base armor class too. */
+/** Whether an item fits a wishlist: its type and base, its base armor (--ac), and its wanted affixes (a staff's or book's spell as its suffix). */
 bool MatchesWish(const Wishlist &wish, const Item &item)
 {
 	if (item.isEmpty())
@@ -876,7 +893,8 @@ bool MatchesWish(const Wishlist &wish, const Item &item)
 		return false;
 	if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(AllItemsList[item.IDidx].iName)) == wish.bases.end())
 		return false;
-	if (wish.minRoll && BaseArmorRoll(item) < *wish.minRoll)
+	// An armor, helm or shield rolls its own armor class (GetItemAttrs), apart from any affix's armor percentage.
+	if (wish.minAc && (AllItemsList[item.IDidx].iMaxAC == 0 || item._iAC < *wish.minAc))
 		return false;
 	if (wish.prefixes.empty() && wish.suffixes.empty())
 		return true;
