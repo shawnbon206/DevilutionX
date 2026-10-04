@@ -57,6 +57,8 @@ struct Wishlist {
 };
 
 std::optional<Wishlist> Wish;
+/** The level Wirt's hunt rolls at, when it's below your own: the highest one that can roll the wishlist. */
+std::optional<int> RolledAt;
 
 constexpr std::array<const char *, 13> TypeNames = { "ring", "amulet", "sword", "axe", "mace", "bow", "staff", "helm", "shield",
 	"light_armor", "medium_armor", "heavy_armor", "book" };
@@ -460,8 +462,11 @@ std::optional<Wishlist> ParseWishlist(string_view text, std::string &error)
 	return wish;
 }
 
-/** Has Wirt roll a new item now; he keeps it until you've gained two levels or bought it, wherever you are. */
-void RerollWirt()
+/**
+ * Has Wirt roll a new item now, as for a character of this level; he keeps it until you've gained two levels or bought
+ * it, wherever you are.
+ */
+void RerollWirt(int level)
 {
 	boyitem = {};
 	if (MyPlayer == nullptr)
@@ -469,8 +474,10 @@ void RerollWirt()
 	// A fresh start each time, as the stores get one (SetupTownStores), so asking again doesn't replay the same items.
 	const uint32_t rngState = GetLCGEngineState();
 	SetRndSeed(SDL_GetTicks());
-	SpawnBoy(MyPlayer->_pLevel);
+	SpawnBoy(level);
 	SetRndSeed(rngState);
+	// SpawnBoy marks the item as rolled for that level; it's yours, so he keeps it as long as one rolled at your own.
+	boylevel = MyPlayer->_pLevel / 2;
 }
 
 /** The affix item kinds an item type takes affixes for. */
@@ -729,7 +736,7 @@ std::string AffixLevelsText(const Wishlist &wish, AffixItemType kinds)
  * amulets in multiplayer; he only rolls affixes whose level is from your character level (at most 25) to twice it, and
  * only ones that aren't bad (onlygood).
  */
-std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool checkLevel = true)
+std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool checkLevel = true, int *huntLevel = nullptr)
 {
 	const std::vector<std::string> sold = SoldTypes(wish);
 	if (sold.empty())
@@ -753,7 +760,7 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool che
 	for (const std::string &type : sold)
 		kinds |= AffixKindsFor(type);
 
-	const int level = MyPlayer->_pLevel;
+	int level = MyPlayer->_pLevel;
 	// The reason the first wanted affix in a place can't come up, or nothing if one of them can.
 	const auto slotReason = [&](const std::vector<WantedAffix> &wanted, const PLStruct *table) -> std::string {
 		std::string reason;
@@ -787,12 +794,15 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool che
 
 	if (checkLevel) {
 		const std::vector<int> levels = WishLevels(wish, sold);
-		if (std::find(levels.begin(), levels.end(), level) == levels.end()) {
-			if (levels.empty())
-				return fmt::format(fmt::runtime(_("{:s}: Wirt never rolls that at any one character level.")), AffixLevelsText(wish, kinds));
+		if (levels.empty())
+			return fmt::format(fmt::runtime(_("{:s}: Wirt never rolls that at any one character level.")), AffixLevelsText(wish, kinds));
+		// Past the levels that can roll it, he rolls as for the highest of them; never above your own.
+		if (levels.front() > level)
 			return fmt::format(fmt::runtime(_("{:s}: Wirt rolls that at character levels {:s}, you're {:d}.")), AffixLevelsText(wish, kinds), RangesText(levels), level);
-		}
+		level = *std::prev(std::upper_bound(levels.begin(), levels.end(), level));
 	}
+	if (huntLevel != nullptr)
+		*huntLevel = level;
 
 	if (!checkPrice)
 		return "";
@@ -1202,7 +1212,8 @@ std::string TextCmdAdria(string_view parameter)
 void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear)
 {
 	if (found) {
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found {:s} after {:d} tries.")), item._iIName, tries + 1));
+		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found {:s} after {:d} tries{:s}.")), item._iIName, tries + 1,
+		    RolledAt ? fmt::format(fmt::runtime(_(", rolling as for level {:d}")), *RolledAt) : ""));
 	} else if (tooDear > 0) {
 		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found nothing in {:d} tries: the {:d} he rolled that fit would cost over {:s} gold, more than he asks.")),
 		    WirtWishlistTries, tooDear, FormatInteger(WirtAskingPrice(MaxBoyValue))));
@@ -1225,12 +1236,16 @@ std::string TextCmdWirt(string_view parameter)
 	std::optional<Wishlist> wish = ParseWishlist(parameter, error);
 	if (!wish)
 		return error;
-	if (const std::string reason = WhyImpossible(*wish); !reason.empty())
+	int level;
+	if (const std::string reason = WhyImpossible(*wish, true, true, &level); !reason.empty())
 		return reason;
 	// One hunt, now; the wishlist is only kept while it runs.
 	Wish = std::move(wish);
-	RerollWirt();
+	if (level != MyPlayer->_pLevel)
+		RolledAt = level;
+	RerollWirt(level);
 	Wish = std::nullopt;
+	RolledAt = std::nullopt;
 	return "";
 }
 
