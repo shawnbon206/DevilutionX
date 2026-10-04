@@ -75,6 +75,8 @@ def parse_args():
     wishlist.add_argument('--unique', nargs='+', default=[], metavar='NAME', help='unique items, e.g. "Harlequin Crest"')
     wishlist.add_argument('--min-roll', type=int, metavar='PERCENT',
                           help='each wanted affix rolled at least this far up its range; 80 is the top fifth')
+    wishlist.add_argument('-a', '--ac', type=int, metavar='N',
+                          help='armor, helms and shields: base armor at least N, apart from any affix')
     wishlist.description = 'A prefix or suffix can carry its own minimum for the first number it shows: Obsidian:38.'
 
     games = parser.add_argument_group('game settings', 'The host has to create the game with these settings.')
@@ -159,6 +161,7 @@ class Wishlist:
         self.uniques = set(lower(args.unique))
         self.either = args.either
         self.min_roll = args.min_roll
+        self.ac = args.ac
 
     def matches(self, row):
         if self.types and row['item_type'] not in self.types:
@@ -167,8 +170,8 @@ class Wishlist:
             return False
         if self.uniques and row['unique_name'].lower() not in self.uniques:
             return False
-        # --min-roll covers an armor's own armor class roll too, not only its affixes.
-        if self.min_roll is not None and row['base_roll'] != '' and int(row['base_roll']) < self.min_roll:
+        # An armor, helm or shield rolls its own armor class; anything else has none.
+        if self.ac is not None and int(row['ac'] or 0) < self.ac:
             return False
         has_prefix = self.affix_ok(self.prefixes, row['prefix'], row['prefix_value']) and self.roll_ok(row['prefix_roll'])
         has_suffix = self.affix_ok(self.suffixes, row['suffix'], row['suffix_value']) and self.roll_ok(row['suffix_roll'])
