@@ -385,13 +385,20 @@ std::optional<Wishlist> ParseWishlist(string_view text, std::string &error)
 	Wishlist wish;
 	std::string option;
 	for (const std::string &token : Tokens(text)) {
-		if (token.rfind("--", 0) == 0) {
-			option = AsciiStrToLower(token.substr(2));
+		// Options, long or short to save chat space: --type -t, --base -b, --prefix -p, --suffix -s, --either -e, --min-roll -m.
+		const bool isShort = token.size() == 2 && token[0] == '-' && token[1] != '-';
+		if (token.rfind("--", 0) == 0 || isShort) {
+			option = AsciiStrToLower(token.substr(isShort ? 1 : 2));
+			if (isShort) {
+				constexpr std::array<std::pair<char, const char *>, 6> Shorts = { { { 't', "type" }, { 'b', "base" }, { 'p', "prefix" }, { 's', "suffix" }, { 'e', "either" }, { 'm', "min-roll" } } };
+				const auto found = std::find_if(Shorts.begin(), Shorts.end(), [&option](const auto &entry) { return option[0] == entry.first; });
+				option = found != Shorts.end() ? found->second : option;
+			}
 			if (option == "either") {
 				wish.either = true;
 				option.clear();
 			} else if (!IsAnyOf(option, "type", "base", "prefix", "suffix", "min-roll")) {
-				error = fmt::format(fmt::runtime(_("Unknown option {:s}. Use --type, --base, --prefix, --suffix, --either, --min-roll.")), token);
+				error = fmt::format(fmt::runtime(_("Unknown option {:s}. Use -t, -b, -p, -s, -e, -m (or --type, --base, --prefix, --suffix, --either, --min-roll).")), token);
 				return std::nullopt;
 			}
 			continue;
