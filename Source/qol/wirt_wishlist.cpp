@@ -184,20 +184,27 @@ const std::vector<RollRange> &GetRollRanges(const PLStruct &affix)
 }
 
 /**
- * How good an affix's roll is, 0 to 100, taking the weakest part when it rolls more than one value. Affixes without
- * a roll count as 100. Nothing when a shown number doesn't fit this table entry's ranges.
+ * How good an affix's roll is, 0 to 100; of more than one number, the one rolled from its own table range: King's
+ * damage (151-175), not the to-hit that comes with it (76-100), which also leaves the price alone. Affixes without a
+ * roll count as 100. Nothing when a shown number doesn't fit this table entry's ranges.
  */
 std::optional<int> RollPercent(const PLStruct &affix, const Item &item, const std::array<std::string, 2> &numbers)
 {
 	const std::array<int, 3> quantities = RollQuantities(item, numbers);
+	const std::vector<RollRange> &ranges = GetRollRanges(affix);
+	const auto own = std::find_if(ranges.begin(), ranges.end(), [&affix](const RollRange &range) {
+		return range.lowest == std::abs(affix.power.param1) && range.highest == std::abs(affix.power.param2);
+	});
 	int weakest = 100;
-	for (const RollRange &range : GetRollRanges(affix)) {
+	for (const RollRange &range : ranges) {
 		int percent = (quantities[range.quantity] - range.lowest) * 100 / (range.highest - range.lowest);
 		if (range.quantity == 2)
 			percent = std::clamp(percent, 0, 100);
+		// Every number still has to be in its range: that tells apart table entries with the same name.
 		if (percent < 0 || percent > 100)
 			return std::nullopt;
-		weakest = std::min(weakest, percent);
+		if (own == ranges.end() || &range == &*own)
+			weakest = std::min(weakest, percent);
 	}
 	return weakest;
 }
