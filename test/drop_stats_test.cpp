@@ -1144,25 +1144,68 @@ TEST_F(DropStats, DryRunTimingAndSample)
 	std::printf("per game on Hell (all reachable levels): %.1f ms\n", totalMs / Games);
 }
 
-// Writes every prefix, suffix, unique and base item name to DROPSTATS_NAMES_FILE, so searches can
-// reject a misspelled name before simulating anything.
+/** The search's item types an affix can go on: "sword axe mace", "helm light_armor medium_armor heavy_armor". */
+std::string AffixTypeNames(AffixItemType kinds)
+{
+	std::string names;
+	const auto add = [&](AffixItemType kind, const char *types) {
+		if (HasAnyOf(kinds, kind))
+			names += StrCat(names.empty() ? "" : " ", types);
+	};
+	add(AffixItemType::Weapon, "sword axe mace");
+	add(AffixItemType::Bow, "bow");
+	add(AffixItemType::Staff, "staff");
+	add(AffixItemType::Armor, "helm light_armor medium_armor heavy_armor");
+	add(AffixItemType::Shield, "shield");
+	add(AffixItemType::Misc, "ring amulet");
+	return names;
+}
+
+/**
+ * The highest level a dungeon item is made at in Diablo mode (dungeon levels 1-16). A monster's drop is made at its
+ * kind's level (monster.data().level, the same on every difficulty), a unique monster's 4 higher (GetItemBLevel), and a
+ * chest's or other object's at twice the dungeon level.
+ */
+int MostDropLevel()
+{
+	const auto inDiablo = [](const MonsterData &data) { return data.availability != MonsterAvailability::Never && data.minDunLvl <= 16; };
+	int most = 2 * 16;
+	for (int j = 0; j < NUM_MTYPES; j++) {
+		if (inDiablo(MonstersData[j]))
+			most = std::max<int>(most, MonstersData[j].level);
+	}
+	for (int j = 0; UniqueMonstersData[j].mtype != MT_INVALID; j++) {
+		const MonsterData &data = MonstersData[UniqueMonstersData[j].mtype];
+		if (inDiablo(data))
+			most = std::max(most, data.level + 4);
+	}
+	return most;
+}
+
+// Writes every prefix, suffix, unique, base and spell name to DROPSTATS_NAMES_FILE, so searches can reject a
+// misspelled name before simulating anything; and with them what a search checks a wishlist against before it starts:
+// an affix's level and the item types it goes on, a base's type and most armor, and the highest level a drop is made at.
 TEST_F(DropStats, DumpNames)
 {
 	const char *path = std::getenv("DROPSTATS_NAMES_FILE");
 	if (path == nullptr)
 		GTEST_SKIP() << "DROPSTATS_NAMES_FILE not set";
 	std::ofstream names(path, std::ios::binary | std::ios::trunc);
-	names << "kind,name\n";
+	names << "kind,name,level,types,max_ac\n";
 	for (int j = 0; ItemPrefixes[j].power.type != IPL_INVALID; j++)
-		names << "prefix," << CsvField(ItemPrefixes[j].PLName) << "\n";
+		names << "prefix," << CsvField(ItemPrefixes[j].PLName) << "," << static_cast<int>(ItemPrefixes[j].PLMinLvl) << "," << AffixTypeNames(ItemPrefixes[j].PLIType) << ",\n";
 	for (int j = 0; ItemSuffixes[j].power.type != IPL_INVALID; j++)
-		names << "suffix," << CsvField(ItemSuffixes[j].PLName) << "\n";
+		names << "suffix," << CsvField(ItemSuffixes[j].PLName) << "," << static_cast<int>(ItemSuffixes[j].PLMinLvl) << "," << AffixTypeNames(ItemSuffixes[j].PLIType) << ",\n";
 	for (int j = 0; UniqueItems[j].UIItemId != UITYPE_INVALID; j++)
-		names << "unique," << CsvField(UniqueItems[j].UIName) << "\n";
-	for (int j = IDI_GOLD; j <= IDI_LAST; j++)
-		names << "base," << CsvField(AllItemsList[j].iName) << "\n";
+		names << "unique," << CsvField(UniqueItems[j].UIName) << ",,,\n";
+	for (int j = IDI_GOLD; j <= IDI_LAST; j++) {
+		const ItemData &base = AllItemsList[j];
+		names << "base," << CsvField(base.iName) << "," << static_cast<int>(base.iMinMLvl) << ","
+		      << (base.iMiscId == IMISC_BOOK ? string_view("book") : ItemTypeName(base.itype)) << "," << static_cast<int>(base.iMaxAC) << "\n";
+	}
 	for (int8_t j = static_cast<int8_t>(SpellID::Firebolt); j <= static_cast<int8_t>(SpellID::LAST); j++)
-		names << "spell," << CsvField(GetSpellData(static_cast<SpellID>(j)).sNameText) << "\n";
+		names << "spell," << CsvField(GetSpellData(static_cast<SpellID>(j)).sNameText) << ",,staff book,\n";
+	names << "droplevel,most," << MostDropLevel() << ",,\n";
 	ASSERT_TRUE(names) << "could not write " << path;
 }
 

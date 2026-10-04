@@ -315,7 +315,7 @@ struct UniqueMonsterData {
 	_speech_id mtalkmsg;
 };
 
-extern const MonsterData MonstersData[];
+extern DVL_API_FOR_TEST const MonsterData MonstersData[];
 extern const _monster_id MonstConvTbl[];
 extern DVL_API_FOR_TEST const UniqueMonsterData UniqueMonstersData[];
 

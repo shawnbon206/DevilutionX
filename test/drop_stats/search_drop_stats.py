@@ -287,9 +287,84 @@ def print_drop(drop):
         print(f"  The game hangs entering {drop['hung']}; stay out of it.")
 
 
+def check_possible(args):
+    """
+    Stops a search that could never find anything, as /wirt does, from the game's own data (names.csv): an affix that
+    can't go on the wanted items or is above the highest level any drop is made at, a prefix and suffix that no one drop
+    level can have together (its affixes are from half its level, at most 25, up to its level), or --ac above what the
+    bases roll. Uniques and staff spells aren't checked.
+    """
+    if args.unique:
+        return
+    rows = {}
+    most = None
+    with open(os.path.join(args.bin, 'names.csv'), encoding='utf-8', newline='') as f:
+        for row in csv.DictReader(f):
+            if row['kind'] == 'droplevel':
+                most = int(row['level'])
+            rows.setdefault(row['kind'], {}).setdefault(row['name'].lower(), []).append(row)
+    if most is None:
+        return
+    bases = [row for name in args.base for row in rows['base'][name.lower()]]
+    types = {row['types'] for row in bases} if bases else set(args.type)
+
+    if args.ac is not None:
+        candidates = bases or [row for named in rows['base'].values() for row in named if not types or row['types'] in types]
+        best = max((int(row['max_ac']) for row in candidates), default=0)
+        if best == 0:
+            sys.exit('--ac is for armor, helms and shields.')
+        if best < args.ac:
+            sys.exit(f'No base on this list rolls {args.ac} armor; the most is {best}.')
+
+    def options(kind, specs):
+        """The wanted affixes as (name, level, types they can go on here); a spell is None, as it isn't checked."""
+        found = []
+        for spec in specs:
+            name = split_minimum(spec)[0].lower()
+            if kind == 'suffix' and name.startswith('of '):
+                name = name[3:]
+            if name not in rows[kind]:
+                return None
+            for row in rows[kind][name]:
+                fits = set(row['types'].split()) & types if types else set(row['types'].split())
+                found.append((row['name'], int(row['level']), fits))
+        return found
+
+    def reason(affix):
+        name, level, fits = affix
+        if not fits:
+            return f'{name} never goes on {" or ".join(sorted(types))}.'
+        if level > most:
+            return f'{name} (level {level}): drops are made at level {most} at most, so none has it.'
+        return ''
+
+    prefixes = options('prefix', args.prefix) if args.prefix else []
+    suffixes = options('suffix', args.suffix) if args.suffix else []
+    if prefixes is None or suffixes is None:
+        return
+    usable_prefixes = [p for p in prefixes if not reason(p)]
+    usable_suffixes = [s for s in suffixes if not reason(s)]
+    if args.prefix and args.suffix and args.either:
+        if not usable_prefixes and not usable_suffixes:
+            sys.exit(reason(prefixes[0]))
+        return
+    for wanted, usable in ((prefixes, usable_prefixes), (suffixes, usable_suffixes)):
+        if wanted and not usable:
+            sys.exit(reason(wanted[0]))
+    if usable_prefixes and usable_suffixes:
+        together = lambda p, s: p[2] & s[2] and min(p[1], s[1]) >= min(max(p[1], s[1]) // 2, 25)
+        if not any(together(p, s) for p in usable_prefixes for s in usable_suffixes):
+            p, s = usable_prefixes[0], usable_suffixes[0]
+            if not p[2] & s[2]:
+                sys.exit(f'{p[0]} and {s[0]} never go on the same kind of item.')
+            sys.exit(f'{p[0]} (level {p[1]}) + {s[0]} (level {s[1]}): no drop has both, as a drop\'s affixes are from '
+                     f'half its level (at most 25) up to its level.')
+
+
 def main():
     args = parse_args()
     check_names(args)
+    check_possible(args)
     wishlist = Wishlist(args)
     first_seed = args.start if args.start is not None else int(time.time())
     stop_at = int(time.time() + args.minutes * 60) if args.minutes > 0 else None
