@@ -276,6 +276,8 @@ public:
 	bool m_allowEmpty;
 	/** Shows the text from its first '-' on a second line, for seed codes ("1790847150" over "-16:m59"). */
 	bool m_breakBeforeDash = false;
+	/** Shown dimmed while the box is empty, such as "Seed (optional)". */
+	string_view m_placeholder;
 };
 
 //=============================================================================

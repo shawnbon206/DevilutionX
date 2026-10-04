@@ -897,6 +897,17 @@ void Render(const UiEdit &uiEdit)
 	// To simulate padding we inset the region used to draw text in an edit control
 	Rectangle rect = MakeRectangle(uiEdit.m_rect).inset({ 43, 1 });
 
+	if (uiEdit.m_value[0] == '\0' && !uiEdit.m_placeholder.empty()) {
+		DrawString(Surface(DiabloUiSurface()), uiEdit.m_placeholder, rect,
+		    {
+		        (uiEdit.GetFlags() & ~UiFlags::ColorUiGold) | UiFlags::ColorUiSilverDark,
+		        /*spacing=*/1,
+		        /*lineHeight=*/-1,
+		        /*cursorPosition=*/0,
+		    });
+		return;
+	}
+
 	if (uiEdit.m_breakBeforeDash) {
 		// From the first '-' on goes to a second line; the two lines stay centered on the box.
 		const string_view value = uiEdit.m_value;
