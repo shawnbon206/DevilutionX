@@ -777,7 +777,7 @@ std::string ListBases(string_view text)
 	std::vector<std::pair<std::string, int>> over;
 	for (const auto &entry : prices)
 		(entry.second <= MaxBoyValue ? under : over).push_back(entry);
-	EventPlrMsg(fmt::format(fmt::runtime(_("Bases for{:s}, cheapest price each:")), wish->text));
+	EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's starting prices for{:s}; you're level {:d}:")), wish->text, MyPlayer->_pLevel));
 	constexpr size_t Shown = 8;
 	for (size_t i = 0; i < under.size() && i < Shown; i++) {
 		const auto &entry = under[under.size() - 1 - i];
