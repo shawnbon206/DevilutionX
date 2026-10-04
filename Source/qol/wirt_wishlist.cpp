@@ -480,6 +480,15 @@ bool WirtSells(string_view type)
 }
 
 /**
+ * Whether Wirt rolls an affix of this level for a character of this level: from the character level, but never above
+ * 25 (GetItemBonus caps the lowest affix level there), to twice the character level (SpawnBoy).
+ */
+bool WirtAffixLevelFits(int affixLevel, int level)
+{
+	return affixLevel >= std::min(level, 25) && affixLevel <= 2 * level;
+}
+
+/**
  * The least an affix table entry adds to an item's price when its value is the lowest the wishlist allows: the game
  * prices an affix by where the value its power rolled sits in the power's range (PLVal in SaveItemAffix), the same
  * whole percentage --min-roll is judged by. (King's prices only its damage; its to-hit is free.)
@@ -514,7 +523,7 @@ std::vector<std::pair<std::string, int>> BasePrices(const Wishlist &wish, const 
 			for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
 				const PLStruct &affix = table[j];
 				if (AsciiStrToLower(affix.PLName) != want.name || !HasAnyOf(affix.PLIType, kinds) || !affix.PLOk
-				    || (level >= 0 && (affix.PLMinLvl < level || affix.PLMinLvl > 2 * level)))
+				    || (level >= 0 && !WirtAffixLevelFits(affix.PLMinLvl, level)))
 					continue;
 				const int price = CheapestAffixPrice(affix, wish.minRoll, want.minimum) + std::max(affix.multVal, 0) * baseValue;
 				if (!best || price < *best)
@@ -578,6 +587,7 @@ std::vector<std::string> SoldTypes(const Wishlist &wish)
 
 constexpr int MaxCharacterLevel = 50;
 
+
 /**
  * A base's own stats, which is what makes one better than another (not its gold value: a Tower Shield rolls 12-20
  * armor, a Gothic Shield 14-18, and is worth more): "armor 12-20" or "damage 6-20".
@@ -618,7 +628,7 @@ bool SlotRollable(const std::vector<WantedAffix> &wanted, const PLStruct *table,
 	for (const WantedAffix &want : wanted) {
 		for (int j = 0; table[j].power.type != IPL_INVALID; j++) {
 			const PLStruct &affix = table[j];
-			if (AsciiStrToLower(affix.PLName) == want.name && HasAnyOf(affix.PLIType, kinds) && affix.PLOk && affix.PLMinLvl >= level && affix.PLMinLvl <= 2 * level)
+			if (AsciiStrToLower(affix.PLName) == want.name && HasAnyOf(affix.PLIType, kinds) && affix.PLOk && WirtAffixLevelFits(affix.PLMinLvl, level))
 				return true;
 		}
 	}
@@ -694,7 +704,7 @@ std::string AffixLevelsText(const Wishlist &wish, AffixItemType kinds)
 
 /**
  * Why Wirt could never roll an item on this wishlist for you, or nothing if he can. He sells no staves, and no rings or
- * amulets in multiplayer; he only rolls affixes whose level is from your character level to twice it (SpawnBoy), and
+ * amulets in multiplayer; he only rolls affixes whose level is from your character level (at most 25) to twice it, and
  * only ones that aren't bad (onlygood).
  */
 std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool checkLevel = true)
