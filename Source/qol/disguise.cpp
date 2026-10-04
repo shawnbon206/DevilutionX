@@ -3,13 +3,14 @@
  *
  * /disguise: the other players are shown your weapons, armor and jewelry with the same bases and affixes but poor
  * rolls. Items go to other games as the seed they were rolled from, and those games roll them again, so a disguised
- * item is the same base and creation info rolled from another seed: one that comes out with the same name (base,
- * prefix and suffix) and the lowest value, which is the poorest rolls.
+ * item is the same base and creation info rolled from another seed: the first one found that comes out with the same
+ * name (base, prefix and suffix). Its rolls are another draw, so on average a high roll shows as a lower one.
  */
 #include "qol/disguise.h"
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <tuple>
@@ -29,12 +30,11 @@ namespace devilution {
 namespace {
 
 /**
- * How many seeds are tried for a disguise at most, and how many lookalikes are compared for the poorest. Nothing is
- * stored: an item's disguise is worked out again each session from its own seed, so changing these (or PassesFor,
- * or the seed walk) changes every disguise at once, which players who inspect you would notice.
+ * How many seeds are tried for a disguise at most. Nothing is stored: an item's disguise is worked out again each
+ * session from its own seed, so changing PassesFor or the seed walk changes every disguise at once, which players who
+ * inspect you would notice.
  */
 constexpr int MaxSeedTries = 200000;
-constexpr int Lookalikes = 32;
 
 /** The disguise seed found for each real item, by the item's seed, base and creation info. */
 std::map<std::tuple<uint32_t, int, uint16_t>, uint32_t> DisguiseSeeds;
@@ -91,35 +91,23 @@ bool PassesFor(const Item &rolled, const Item &item)
 }
 
 /**
- * The seed of the poorest lookalike: walking seeds from one that comes from the item's own, so the same item always
- * gets the same disguise, the lowest value (then armor) of the first few that pass for it. The item's own seed if none
- * is poorer.
+ * The seed of the first lookalike, walking seeds from one that comes from the item's own, so the same item always gets
+ * the same disguise; the item's own seed if none turns up.
  */
 uint32_t FindDisguiseSeed(const Item &item)
 {
 	const uint32_t rngState = GetLCGEngineState();
-	uint32_t best = item._iSeed;
-	int bestValue = item._iIvalue;
-	int bestArmor = item._iAC;
+	uint32_t found = item._iSeed;
 	uint32_t seed = item._iSeed;
-	int found = 0;
-	for (int tries = 0; tries < MaxSeedTries && found < Lookalikes; tries++) {
+	for (int tries = 0; tries < MaxSeedTries; tries++) {
 		seed = seed * 1664525 + 1013904223;
-		const Item rolled = RollFromSeed(item, seed);
-		if (!PassesFor(rolled, item))
-			continue;
-		found++;
-		// Never more armor than the real item: its armor shows apart from the price.
-		if (rolled._iAC > item._iAC)
-			continue;
-		if (rolled._iIvalue < bestValue || (rolled._iIvalue == bestValue && rolled._iAC < bestArmor)) {
-			best = seed;
-			bestValue = rolled._iIvalue;
-			bestArmor = rolled._iAC;
+		if (PassesFor(RollFromSeed(item, seed), item)) {
+			found = seed;
+			break;
 		}
 	}
 	SetRndSeed(rngState);
-	return best;
+	return found;
 }
 
 /** The local player's gear, life and mana put aside while the disguise is worn. */
@@ -225,8 +213,15 @@ void ResendGear()
 		if (!player.InvBody[bodyLocation].isEmpty())
 			NetSendCmdChItem(false, static_cast<uint8_t>(bodyLocation));
 	}
-	for (int i = 0; i < player._pNumInv; i++)
-		NetSyncInvItem(player, i);
+	// By its top-left cell, where the other games put an item down from (CheckInvSwap).
+	for (int i = 0; i < player._pNumInv; i++) {
+		for (int cell = 0; cell < InventoryGridCells; cell++) {
+			if (std::abs(player.InvGrid[cell]) == i + 1) {
+				NetSendCmdChInvItem(false, cell);
+				break;
+			}
+		}
+	}
 	for (int i = 0; i < MaxBeltItems; i++) {
 		if (!player.SpdList[i].isEmpty())
 			NetSendCmdChBeltItem(false, i);

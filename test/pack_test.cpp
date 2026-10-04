@@ -960,7 +960,7 @@ TEST_F(NetPackTest, UnPackNetPlayer_valid)
 	ASSERT_TRUE(TestNetPackValidation());
 }
 
-// With /disguise on, the other games get the same items with poorer rolls, and the totals worked out from them, which
+// With /disguise on, the other games get the same items rolled again, and the totals worked out from them, which
 // pass their check (UnPackNetPlayer drops a player whose don't); the player's own items are left as they were.
 TEST_F(NetPackTest, UnPackNetPlayer_disguised)
 {
@@ -987,8 +987,6 @@ TEST_F(NetPackTest, UnPackNetPlayer_disguised)
 		const Item &seen = Players[1].InvBody[i];
 		EXPECT_EQ(seen.IDidx, real.IDidx);
 		EXPECT_STREQ(seen._iIName, real._iIName);
-		EXPECT_LE(seen._iIvalue, real._iIvalue) << real._iIName;
-		EXPECT_LE(seen._iAC, real._iAC) << real._iIName;
 		if (seen._iSeed != real._iSeed)
 			disguised++;
 	}

@@ -1,8 +1,8 @@
 /**
  * @file disguise.h
  *
- * /disguise: the other players are shown your weapons, armor and jewelry with the same bases and affixes but poor
- * rolls, in /inspect and everywhere else their game uses your gear. Your own game keeps the real items. Whether it's on
+ * /disguise: the other players are shown your weapons, armor and jewelry with the same bases and affixes rolled
+ * again, in /inspect and everywhere else their game uses your gear. Your own game keeps the real items. Whether it's on
  * is saved with the options, so it carries over to the next game.
  */
 #pragma once
@@ -20,7 +20,7 @@ struct PlayerNetPack;
 
 /**
  * @brief The item as the other players are sent it: while the disguise is on, a weapon, armor or jewelry rolled again
- * from another seed to the same base and affixes with poorer rolls, always the same one for the same item. Uniques
+ * from another seed to the same base and affixes, always the same one for the same item. Uniques
  * and everything else are sent as they are.
  */
 Item DisguisedItem(const Item &item);
