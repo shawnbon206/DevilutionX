@@ -440,11 +440,11 @@ std::optional<Wishlist> ParseWishlist(string_view text, std::string &error)
 	return wish;
 }
 
-/** Has Wirt roll a new item now if you're in town, or when you next come to town. */
+/** Has Wirt roll a new item now; he keeps it until you've gained two levels or bought it, wherever you are. */
 void RerollWirt()
 {
 	boyitem = {};
-	if (leveltype != DTYPE_TOWN || MyPlayer == nullptr)
+	if (MyPlayer == nullptr)
 		return;
 	// A fresh start each time, as the stores get one (SetupTownStores), so asking again doesn't replay the same items.
 	const uint32_t rngState = GetLCGEngineState();
@@ -1031,16 +1031,6 @@ bool WirtWishlistMatches(const Item &item)
 	return !Wish || MatchesWish(*Wish, item);
 }
 
-void RecheckWirtWishlist()
-{
-	if (!Wish)
-		return;
-	if (const std::string reason = WhyImpossible(*Wish); !reason.empty()) {
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's wishlist can't come up any more: {:s} Wishlist cleared.")), reason));
-		Wish = std::nullopt;
-	}
-}
-
 bool IsAdriaWishlistSlot(const Item &item)
 {
 	if (AdriaRollsLeft <= 0 || !AdriaWish)
@@ -1059,12 +1049,6 @@ bool RerollAdriaWishlistSlot(const Item &item)
 
 void HuntAdria(int lvl)
 {
-	if (AdriaWish) {
-		if (const std::string reason = WhyAdriaCant(*AdriaWish); !reason.empty()) {
-			EventPlrMsg(fmt::format(fmt::runtime(_("Adria's wishlist can't come up any more: {:s} Wishlist cleared.")), reason));
-			AdriaWish = std::nullopt;
-		}
-	}
 	if (!AdriaWish) {
 		SpawnWitch(lvl);
 		return;
@@ -1163,15 +1147,8 @@ std::string ListAdriaBases(string_view text)
 
 std::string TextCmdAdria(string_view parameter)
 {
-	if (parameter.empty()) {
-		if (!AdriaWish)
-			return std::string(_("No Adria wishlist. Use /adria --type staff book --prefix ... --suffix ... --min-roll N, or /adria off."));
-		return fmt::format(fmt::runtime(_("Adria is looking for:{:s}")), AdriaWish->text);
-	}
-	if (AsciiStrToLower(parameter) == "off") {
-		AdriaWish = std::nullopt;
-		return std::string(_("Adria's wishlist cleared."));
-	}
+	if (parameter.empty())
+		return std::string(_("Use /adria --type staff book --prefix ... --suffix ... --min-roll N, or /adria bases ..."));
 	// "/adria bases ..." (or "base") lists the bases instead of hunting.
 	for (const string_view word : { string_view("bases"), string_view("base") }) {
 		const std::string lower = AsciiStrToLower(parameter);
@@ -1184,15 +1161,17 @@ std::string TextCmdAdria(string_view parameter)
 		return error;
 	if (const std::string reason = WhyAdriaCant(*wish); !reason.empty())
 		return reason;
-	AdriaWish = std::move(wish);
+	// She restocks each time you come to town, which would undo a hunt done elsewhere.
 	if (leveltype != DTYPE_TOWN || MyPlayer == nullptr)
-		return fmt::format(fmt::runtime(_("Adria will look for:{:s} (when you're next in town).")), AdriaWish->text);
-	// A fresh start, as the stores get one each time you come to town.
+		return std::string(_("Go to town first: Adria restocks when you arrive."));
+	// One hunt, now; the wishlist is only kept while it runs. A fresh start, as the stores get one in town.
+	AdriaWish = std::move(wish);
 	const uint32_t rngState = GetLCGEngineState();
 	SetRndSeed(SDL_GetTicks());
 	HuntAdria(AdriaStockLevel());
 	SetRndSeed(rngState);
-	return fmt::format(fmt::runtime(_("Adria is looking for:{:s}")), AdriaWish->text);
+	AdriaWish = std::nullopt;
+	return "";
 }
 
 void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear)
@@ -1209,15 +1188,8 @@ void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear)
 
 std::string TextCmdWirt(string_view parameter)
 {
-	if (parameter.empty()) {
-		if (!Wish)
-			return std::string(_("No Wirt wishlist. Use /wirt --type ... --prefix ... --suffix ... --min-roll N, or /wirt off."));
-		return fmt::format(fmt::runtime(_("Wirt is looking for:{:s}")), Wish->text);
-	}
-	if (AsciiStrToLower(parameter) == "off") {
-		Wish = std::nullopt;
-		return std::string(_("Wirt's wishlist cleared."));
-	}
+	if (parameter.empty())
+		return std::string(_("Use /wirt --type ... --base ... --prefix ... --suffix ... --min-roll N, or /wirt bases ..."));
 	// "/wirt bases ..." (or "base") lists the bases instead of hunting.
 	for (const string_view word : { string_view("bases"), string_view("base") }) {
 		const std::string lower = AsciiStrToLower(parameter);
@@ -1230,11 +1202,11 @@ std::string TextCmdWirt(string_view parameter)
 		return error;
 	if (const std::string reason = WhyImpossible(*wish); !reason.empty())
 		return reason;
+	// One hunt, now; the wishlist is only kept while it runs.
 	Wish = std::move(wish);
 	RerollWirt();
-	if (leveltype != DTYPE_TOWN)
-		return fmt::format(fmt::runtime(_("Wirt will look for:{:s} (when you're next in town).")), Wish->text);
-	return fmt::format(fmt::runtime(_("Wirt is looking for:{:s}")), Wish->text);
+	Wish = std::nullopt;
+	return "";
 }
 
 } // namespace devilution

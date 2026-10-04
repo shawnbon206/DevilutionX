@@ -24,7 +24,6 @@
 #include "options.h"
 #include "panels/info_box.hpp"
 #include "qol/stash.h"
-#include "qol/wirt_wishlist.h"
 #include "towners.h"
 #include "utils/format_int.hpp"
 #include "utils/language.h"
@@ -2195,7 +2194,7 @@ void SetupTownStores()
 
 	l = clamp(l + 2, 6, 16);
 	SpawnSmith(l);
-	HuntAdria(l);
+	SpawnWitch(l);
 	SpawnHealer(l);
 	SpawnBoy(myPlayer._pLevel);
 	SpawnPremium(myPlayer);
