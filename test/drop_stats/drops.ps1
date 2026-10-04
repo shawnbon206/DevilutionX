@@ -2,13 +2,16 @@
 .SYNOPSIS
 Finds DevilutionX 1.5.5 multiplayer game seeds that drop the items you want. Run with --help for usage.
 #>
+param(
+	[Parameter(ValueFromRemainingArguments)]
+	[string[]]$Arguments
+)
 
 $ErrorActionPreference = 'Stop'
 $Search = Join-Path $PSScriptRoot 'search_drop_stats.py'
 
 # "search" used to be the command; it is the only thing this script does now.
-# Plain $args, so PowerShell leaves short options such as -a to the search instead of taking them as its own.
-$Arguments = @($args | Where-Object { $_ -ne $null })
+$Arguments = @($Arguments | Where-Object { $_ -ne $null })
 if ($Arguments.Count -ge 1 -and $Arguments[0] -eq 'search') {
 	$Arguments = @($Arguments | Select-Object -Skip 1)
 }

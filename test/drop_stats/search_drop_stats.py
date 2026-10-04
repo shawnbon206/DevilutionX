@@ -75,7 +75,7 @@ def parse_args():
     wishlist.add_argument('--unique', nargs='+', default=[], metavar='NAME', help='unique items, e.g. "Harlequin Crest"')
     wishlist.add_argument('--min-roll', type=int, metavar='PERCENT',
                           help='each wanted affix rolled at least this far up its range; 80 is the top fifth')
-    wishlist.add_argument('-a', '--ac', type=int, metavar='N',
+    wishlist.add_argument('--ac', type=int, metavar='N',
                           help='armor, helms and shields: base armor at least N, apart from any affix')
     wishlist.description = 'A prefix or suffix can carry its own minimum for the first number it shows: Obsidian:38.'
 
