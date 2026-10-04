@@ -57,7 +57,7 @@ struct Wishlist {
 };
 
 std::optional<Wishlist> Wish;
-/** The level Wirt's hunt rolls at, when it's below your own: the highest one that can roll the wishlist. */
+/** The level Wirt's hunt rolls at, when your own can't roll the wishlist: the nearest one that can. */
 std::optional<int> RolledAt;
 
 constexpr std::array<const char *, 13> TypeNames = { "ring", "amulet", "sword", "axe", "mace", "bow", "staff", "helm", "shield",
@@ -796,10 +796,9 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool che
 		const std::vector<int> levels = WishLevels(wish, sold);
 		if (levels.empty())
 			return fmt::format(fmt::runtime(_("{:s}: Wirt never rolls that at any one character level.")), AffixLevelsText(wish, kinds));
-		// Past the levels that can roll it, he rolls as for the highest of them; never above your own.
-		if (levels.front() > level)
-			return fmt::format(fmt::runtime(_("{:s}: Wirt rolls that at character levels {:s}, you're {:d}.")), AffixLevelsText(wish, kinds), RangesText(levels), level);
-		level = *std::prev(std::upper_bound(levels.begin(), levels.end(), level));
+		// When yours can't, he rolls as for the nearest level that can: the highest below yours, else the lowest above.
+		if (std::find(levels.begin(), levels.end(), level) == levels.end())
+			level = levels.front() > level ? levels.front() : *std::prev(std::upper_bound(levels.begin(), levels.end(), level));
 	}
 	if (huntLevel != nullptr)
 		*huntLevel = level;
