@@ -1023,17 +1023,22 @@ void HuntAdria(int lvl)
 	while (true) {
 		SpawnWitch(lvl);
 		restocks++;
-		// Name everything she has that fits: "Adria has 3: Book of Teleport, Book of Golem, Book of Stone Curse".
-		int found = 0;
-		std::string names;
+		// Name everything she has that fits, alike ones together: "Adria has Book of Elemental x2, Book of Blood Star."
+		std::vector<std::pair<std::string, int>> found;
 		for (const Item &item : witchitem) {
-			if (MatchesWish(*AdriaWish, item)) {
-				found++;
-				names += StrCat(names.empty() ? "" : ", ", ItemReport(item));
-			}
+			if (!MatchesWish(*AdriaWish, item))
+				continue;
+			const std::string name = ItemReport(item);
+			const auto same = std::find_if(found.begin(), found.end(), [&name](const auto &entry) { return entry.first == name; });
+			if (same == found.end())
+				found.emplace_back(name, 1);
+			else
+				same->second++;
 		}
-		if (found > 0) {
-			const std::string what = found == 1 ? names : fmt::format(fmt::runtime(_("{:d}: {:s}")), found, names);
+		if (!found.empty()) {
+			std::string what;
+			for (const auto &[name, count] : found)
+				what += StrCat(what.empty() ? "" : ", ", name, count > 1 ? StrCat(" x", count) : "");
 			// The restocks happen out of sight, at once; only the stock she ends up with is seen, so they aren't counted out.
 			EventPlrMsg(fmt::format(fmt::runtime(_("Adria has {:s}.")), what));
 			break;
