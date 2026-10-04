@@ -117,7 +117,7 @@ def split_minimum(spec):
 def check_names(args):
     """
     Checks every name against the game's, before any time is spent simulating. The start of a name is enough when
-    only one name starts that way ("apoc" is Apocalypse); the name is filled in. Otherwise the search stops, listing
+    only one name starts that way ("apoc" is Apocalypse, "whale" the whale); the name is filled in. Otherwise the search stops, listing
     the names it could be. Apostrophes can be left out ("kings" is King's), as PowerShell takes one for a quote.
     """
     known = {}
@@ -138,7 +138,7 @@ def check_names(args):
                 continue
             bare = lambda n: n.replace("'", '')
             same = [n for n in known[kind] if bare(n) == bare(name)]
-            starting = same or sorted(n for n in known[kind] if bare(n).startswith(bare(name)))
+            starting = same or sorted(n for n in known[kind] if bare(n).startswith(bare(name)) or bare(n).startswith('the ' + bare(name)))
             if len(starting) == 1:
                 full = known[kind][starting[0]]
                 print(f'{kind} "{typed}" = {full}')
