@@ -27,7 +27,7 @@ ITEM_HEADER = [
     'suffix', 'suffix_text', 'suffix_value', 'suffix_value2',
     'unique_name', 'spell', 'charges', 'min_dam', 'max_dam', 'ac', 'max_dur', 'req_str', 'req_mag', 'req_dex',
     'item_value', 'name', 'idx', 'iseed', 'create_info', 'prefix_roll', 'suffix_roll',
-    'source_x', 'source_y',
+    'source_x', 'source_y', 'base_roll',
 ]
 
 
@@ -167,6 +167,9 @@ class Wishlist:
             return False
         if self.uniques and row['unique_name'].lower() not in self.uniques:
             return False
+        # --min-roll covers an armor's own armor class roll too, not only its affixes.
+        if self.min_roll is not None and row['base_roll'] != '' and int(row['base_roll']) < self.min_roll:
+            return False
         has_prefix = self.affix_ok(self.prefixes, row['prefix'], row['prefix_value']) and self.roll_ok(row['prefix_roll'])
         has_suffix = self.affix_ok(self.suffixes, row['suffix'], row['suffix_value']) and self.roll_ok(row['suffix_roll'])
         if self.prefixes and self.suffixes:
@@ -268,6 +271,8 @@ def print_drop(drop):
     """Prints one drop like a log entry: the item flush left, the rest indented."""
     item = drop['item']
     powers = ', '.join(t for t in (item['prefix_text'], item['suffix_text']) if t)
+    if item['base_roll'] != '':
+        powers = ', '.join(t for t in (f"base armor {item['ac']}", powers) if t)
     where = item['set_level'] or f"dlvl {item['dlvl']}"
     difficulties = ', '.join(DIFFICULTIES[d] for d in sorted(drop['difficulties']))
     print(f"{item['name']}   {powers}" if powers else item['name'])

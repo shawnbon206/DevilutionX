@@ -805,8 +805,8 @@ std::string RollText(std::optional<int> roll)
 	return roll ? std::to_string(*roll) : "";
 }
 
-// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py; the last two are the tile the
-// source starts on.
+// Columns in the order of ITEM_HEADER in test/drop_stats/search_drop_stats.py; near the end, the tile the source starts
+// on, then how well an armor rolled its own armor class.
 std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level, const Drop &drop)
 {
 	const Item &item = drop.item;
@@ -847,7 +847,14 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 		suffixRoll = "100";
 	}
 
-	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+	// An armor, helm or shield rolls its own armor class between its base's least and most (GetItemAttrs), apart from
+	// any affix's armor-class percentage; a unique's is set by the unique, so it has none.
+	const ItemData &baseData = AllItemsList[item.IDidx];
+	const std::string baseRoll = !isUnique && baseData.iMaxAC > baseData.iMinAC
+	    ? std::to_string(std::clamp((item._iAC - baseData.iMinAC) * 100 / (baseData.iMaxAC - baseData.iMinAC), 0, 100))
+	    : "";
+
+	return fmt::format("{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
 	    gameSeed, static_cast<int>(difficulty), level.dlvl, level.setLevel == SL_NONE ? "" : CsvField(GetSetLevelQuest(level.setLevel).name),
 	    SourceKindName(drop.kind), CsvField(drop.sourceName), drop.sourceIndex,
 	    isBook ? "book" : ItemTypeName(item._itype), CsvField(AllItemsList[item.IDidx].iName), item._iCreateInfo & CF_LEVEL,
@@ -858,7 +865,7 @@ std::string ItemCsvRow(uint32_t gameSeed, _difficulty difficulty, LevelId level,
 	    item._iMinDam, item._iMaxDam, item._iAC, item._iMaxDur, item._iMinStr, item._iMinMag, item._iMinDex,
 	    item._iIvalue, CsvField(item._iIName), static_cast<int>(item.IDidx), item._iSeed, item._iCreateInfo,
 	    RollText(prefix.roll), suffixRoll,
-	    drop.position.x, drop.position.y);
+	    drop.position.x, drop.position.y, baseRoll);
 }
 
 std::optional<uint64_t> EnvNumber(const char *name)
