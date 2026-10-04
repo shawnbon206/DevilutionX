@@ -807,7 +807,20 @@ std::string ListBases(string_view text)
 	return "";
 }
 
-/** Whether an item fits a wishlist: its type and base, and its wanted affixes (a staff's or book's spell as its suffix). */
+/**
+ * How well an armor, helm or shield rolled its own armor class, 0 to 100, between its base's least and most (GetItemAttrs:
+ * a Gothic Shield's 14 to 18, so 16 is 50); the armor-class percentage of an affix is kept apart from it. Items without a
+ * base roll count as 100.
+ */
+int BaseArmorRoll(const Item &item)
+{
+	const ItemData &base = AllItemsList[item.IDidx];
+	if (base.iMaxAC <= base.iMinAC)
+		return 100;
+	return std::clamp((item._iAC - base.iMinAC) * 100 / (base.iMaxAC - base.iMinAC), 0, 100);
+}
+
+/** Whether an item fits a wishlist: its type and base, its wanted affixes (a staff's or book's spell as its suffix), and with --min-roll, its base armor class too. */
 bool MatchesWish(const Wishlist &wish, const Item &item)
 {
 	if (item.isEmpty())
@@ -815,6 +828,8 @@ bool MatchesWish(const Wishlist &wish, const Item &item)
 	if (!wish.types.empty() && std::find(wish.types.begin(), wish.types.end(), KindName(AllItemsList[item.IDidx])) == wish.types.end())
 		return false;
 	if (!wish.bases.empty() && std::find(wish.bases.begin(), wish.bases.end(), AsciiStrToLower(AllItemsList[item.IDidx].iName)) == wish.bases.end())
+		return false;
+	if (wish.minRoll && BaseArmorRoll(item) < *wish.minRoll)
 		return false;
 	if (wish.prefixes.empty() && wish.suffixes.empty())
 		return true;
