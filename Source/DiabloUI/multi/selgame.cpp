@@ -371,12 +371,13 @@ void selgame_GameSelection_Select(int value)
 		vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, vecSelGameDlgItems.size(), uiPosition.x + 300, (uiPosition.y + 282), 295, 26, UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiGold));
 
 		if (selhero_isMultiPlayer) {
-			// An optional seed under the difficulties: typing goes to it, while the arrows and Enter still pick the
-			// difficulty. The longest seed code is 19 characters ("4294967295-s5:68,76"); it shows on two lines.
-			SDL_Rect rectSeed = { (Sint16)(uiPosition.x + 305), (Sint16)(uiPosition.y + 372), 285, 33 };
-			auto seedEdit = std::make_unique<UiEdit>(_("Game Seed"), selgame_Seed, 20, true, rectSeed, UiFlags::FontSize24 | UiFlags::ColorUiGold);
-			seedEdit->m_breakBeforeDash = true;
-			seedEdit->m_placeholder = _("Seed (optional)");
+			// An optional seed at the foot of the description, in its font: typing goes to it, while the arrows and
+			// Enter still pick the difficulty. The longest seed code ("4294967295-s5:68,76") fits on one line.
+			SDL_Rect rectSeedLabel = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 404), DESCRIPTION_WIDTH, 16 };
+			vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Game Seed").data(), rectSeedLabel, UiFlags::FontSize12 | UiFlags::ColorUiSilver, 1, 16));
+			SDL_Rect rectSeed = { (Sint16)(uiPosition.x + 35), (Sint16)(uiPosition.y + 421), DESCRIPTION_WIDTH, 18 };
+			auto seedEdit = std::make_unique<UiEdit>(_("Game Seed"), selgame_Seed, 20, true, rectSeed, UiFlags::FontSize12 | UiFlags::ColorUiGold);
+			seedEdit->m_showSelector = false;
 			vecSelGameDialog.push_back(std::move(seedEdit));
 		}
 
