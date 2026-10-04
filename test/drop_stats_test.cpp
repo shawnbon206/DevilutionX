@@ -752,21 +752,29 @@ const std::vector<RollRange> &GetRollRanges(const PLStruct &affix)
 	return found->second;
 }
 
-// How good an affix's roll is, 0 to 100: where it sits between the lowest and highest the game can roll,
-// taking the weakest part when the affix rolls more than one value. Affixes without a roll count as 100, so
+// How good an affix's roll is, 0 to 100: where it sits between the lowest and highest the game can roll; of
+// more than one number, the one from its own table range (King's damage). Affixes without a roll count as 100, so
 // --min-roll never rules them out. Nothing when a shown number doesn't fit this table entry's ranges.
 std::optional<int> RollPercent(const PLStruct &affix, const Item &item, const std::array<std::string, 2> &numbers)
 {
 	const std::array<int, 3> quantities = RollQuantities(item, numbers);
+	const std::vector<RollRange> &ranges = GetRollRanges(affix);
+	// When an affix rolls more than one number, the one rolled from its own table range is the roll: King's damage
+	// (151-175), not the to-hit that comes with it (76-100, from CalculateToHitBonus). The price is set by it too.
+	const auto own = std::find_if(ranges.begin(), ranges.end(), [&affix](const RollRange &range) {
+		return range.lowest == std::abs(affix.power.param1) && range.highest == std::abs(affix.power.param2);
+	});
 	int weakest = 100;
-	for (const RollRange &range : GetRollRanges(affix)) {
+	for (const RollRange &range : ranges) {
 		int percent = (quantities[range.quantity] - range.lowest) * 100 / (range.highest - range.lowest);
 		// The durability change is rounded down from a percentage of the base item, so it can land just outside.
 		if (range.quantity == 2)
 			percent = std::clamp(percent, 0, 100);
+		// Every number still has to be in its range: that tells apart table entries with the same name.
 		if (percent < 0 || percent > 100)
 			return std::nullopt;
-		weakest = std::min(weakest, percent);
+		if (own == ranges.end() || &range == &*own)
+			weakest = std::min(weakest, percent);
 	}
 	return weakest;
 }
@@ -1255,6 +1263,20 @@ TEST_F(DropStats, AffixRollRanges)
 			const Item item {};
 			EXPECT_EQ(RollPercent(table[j], item, lowest), 0) << table[j].PLName;
 			EXPECT_EQ(RollPercent(table[j], item, highest), 100) << table[j].PLName;
+			// Of more than one number, exactly one is rolled from the affix's own range, and only it counts.
+			if (ranges.size() > 1) {
+				const auto isOwn = [&](const RollRange &range) {
+					return range.lowest == std::abs(table[j].power.param1) && range.highest == std::abs(table[j].power.param2);
+				};
+				EXPECT_EQ(std::count_if(ranges.begin(), ranges.end(), isOwn), 1) << table[j].PLName;
+				// The others lowest (King's to-hit) and its own highest: still a top roll.
+				std::array<std::string, 2> othersLowest = highest;
+				for (const RollRange &range : ranges) {
+					if (!isOwn(range))
+						othersLowest[range.quantity] = lowest[range.quantity];
+				}
+				EXPECT_EQ(RollPercent(table[j], item, othersLowest), 100) << table[j].PLName << " with its other numbers lowest";
+			}
 		}
 	}
 	EXPECT_GT(rolling, 100);
