@@ -578,6 +578,12 @@ std::vector<std::string> SoldTypes(const Wishlist &wish)
 
 constexpr int MaxCharacterLevel = 50;
 
+/** What Wirt asks for an item worth this much: half again its value (StoreBoy, BoyBuyItem). His limit is on the value. */
+int WirtAskingPrice(int value)
+{
+	return value + value / 2;
+}
+
 /** Whether Wirt rolls one of the wanted affixes for a place at a character level: its level is from that level to twice it. */
 bool SlotRollable(const std::vector<WantedAffix> &wanted, const PLStruct *table, AffixItemType kinds, int level)
 {
@@ -717,8 +723,8 @@ std::string WhyImpossible(const Wishlist &wish, bool checkPrice = true, bool che
 		return "";
 	const std::vector<std::pair<std::string, int>> prices = BasePrices(wish, sold, level);
 	if (!prices.empty() && prices.front().second > MaxBoyValue) {
-		return fmt::format(fmt::runtime(_("The cheapest item on this wishlist costs {:s} gold; Wirt sells up to {:s}. See /wirt bases.")),
-		    FormatInteger(prices.front().second), FormatInteger(MaxBoyValue));
+		return fmt::format(fmt::runtime(_("The cheapest item on this wishlist would cost {:s} gold; Wirt asks at most {:s}. See /wirt bases.")),
+		    FormatInteger(WirtAskingPrice(prices.front().second)), FormatInteger(WirtAskingPrice(MaxBoyValue)));
 	}
 	return "";
 }
@@ -786,17 +792,17 @@ std::string ListBases(string_view text)
 	constexpr size_t Shown = 8;
 	for (size_t i = 0; i < under.size() && i < Shown; i++) {
 		const size_t index = under.size() - 1 - i;
-		EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  levels {:s}")), under[index].first, FormatInteger(under[index].second), levelsOf[index]));
+		EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  levels {:s}")), under[index].first, FormatInteger(WirtAskingPrice(under[index].second)), levelsOf[index]));
 	}
 	if (under.size() > Shown)
 		EventPlrMsg(fmt::format(fmt::runtime(_("  and {:d} cheaper")), under.size() - Shown));
 	if (under.empty())
-		EventPlrMsg(fmt::format(fmt::runtime(_("  none under {:s}")), FormatInteger(MaxBoyValue)));
+		EventPlrMsg(fmt::format(fmt::runtime(_("  none under {:s}")), FormatInteger(WirtAskingPrice(MaxBoyValue))));
 	if (!over.empty()) {
 		std::string names;
 		for (size_t i = 0; i < over.size() && i < 4; i++)
-			names += StrCat(i == 0 ? "" : ", ", over[i].first, " ", FormatInteger(over[i].second));
-		EventPlrMsg(fmt::format(fmt::runtime(_("  over {:s}: {:s}{:s}")), FormatInteger(MaxBoyValue), names, over.size() > 4 ? ", ..." : ""));
+			names += StrCat(i == 0 ? "" : ", ", over[i].first, " ", FormatInteger(WirtAskingPrice(over[i].second)));
+		EventPlrMsg(fmt::format(fmt::runtime(_("  over {:s}: {:s}{:s}")), FormatInteger(WirtAskingPrice(MaxBoyValue)), names, over.size() > 4 ? ", ..." : ""));
 	}
 	return "";
 }
@@ -1139,8 +1145,8 @@ void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear)
 	if (found) {
 		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found {:s} after {:d} tries.")), item._iIName, tries + 1));
 	} else if (tooDear > 0) {
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found nothing in {:d} tries: the {:d} he rolled that fit cost over {:d} gold, more than he may sell.")),
-		    WirtWishlistTries, tooDear, MaxBoyValue));
+		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found nothing in {:d} tries: the {:d} he rolled that fit would cost over {:s} gold, more than he asks.")),
+		    WirtWishlistTries, tooDear, FormatInteger(WirtAskingPrice(MaxBoyValue))));
 	} else {
 		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found nothing on your wishlist in {:d} tries.")), WirtWishlistTries));
 	}
