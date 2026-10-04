@@ -733,6 +733,9 @@ std::string ListBases(string_view text)
 	const std::optional<Wishlist> wish = ParseWishlist(text, error);
 	if (!wish)
 		return error;
+	// Wirt only sells magic items, and their price comes from their affixes; without any named there's nothing to price.
+	if (wish->prefixes.empty() && wish->suffixes.empty())
+		return std::string(_("/wirt bases needs a --prefix or --suffix: the price comes from them."));
 	// Only what can never happen stops the list; outside the level where Wirt rolls the affixes it's priced as within
 	// it, with a note, so you can see ahead.
 	if (const std::string reason = WhyImpossible(*wish, false, false); !reason.empty())
