@@ -272,6 +272,30 @@ def same_drop(item):
     return tuple(item[key] for key in ('name', 'prefix_text', 'suffix_text', 'dlvl', 'set_level', 'source_index', 'source_x', 'source_y'))
 
 
+class Progress:
+    """
+    How far the search is, on one line redrawn in place until a match prints, so a long search doesn't scroll. Output
+    that isn't a console (a file, a pipe) gets a new line now and then instead.
+    """
+
+    def __init__(self):
+        self.live = sys.stdout.isatty()
+        self.every = 10 if self.live else 60
+        self.width = 0
+
+    def show(self, text):
+        if self.live:
+            print('\r' + text.ljust(self.width), end='', flush=True)
+            self.width = len(text)
+        else:
+            print(text, flush=True)
+
+    def clear(self):
+        if self.width:
+            print('\r' + ' ' * self.width + '\r', end='', flush=True)
+            self.width = 0
+
+
 def print_drop(drop):
     """Prints one drop like a log entry: the item flush left, the rest indented."""
     item = drop['item']
@@ -392,6 +416,7 @@ def main():
     seeds_done = 0
     last_seed = first_seed
     last_progress = time.time()
+    progress = Progress()
     try:
         while running > 0:
             try:
@@ -419,6 +444,7 @@ def main():
                 # A worker sends all three difficulties of a seed together, Hell last.
                 if difficulty == 2:
                     for drop in drops_by_seed.get(seed, {}).values():
+                        progress.clear()
                         print_drop(drop)
                     worker.next_seed = seed + args.workers
                     seeds_done += 1
@@ -428,16 +454,18 @@ def main():
                 hung.append((int(row[0]), int(row[1]), int(row[2])))
             elif worker is not None and line.startswith(f'worker {worker.index} finished'):
                 worker.finished = True
-            if time.time() - last_progress >= 60:
-                print(f'... {seeds_done:,} seeds searched, up to {short_time(last_seed)}, {len(drops_by_seed):,} with a match', flush=True)
+            if time.time() - last_progress >= progress.every:
+                progress.show(f'... {seeds_done:,} seeds searched, up to {short_time(last_seed)}, {len(drops_by_seed):,} with a match')
                 last_progress = time.time()
     except KeyboardInterrupt:
-        print('\nStopping...')
+        progress.clear()
+        print('Stopping...')
     finally:
         for worker in workers:
             if worker.process.poll() is None:
                 worker.process.kill()
 
+    progress.clear()
     print(f'\nSearched {seeds_done:,} seeds, games created {short_time(first_seed)} to {short_time(last_seed)}')
     for difficulty in range(3):
         matching = sum(1 for k in hits if k[1] == difficulty)
