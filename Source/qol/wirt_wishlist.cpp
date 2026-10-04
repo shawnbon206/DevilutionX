@@ -755,7 +755,7 @@ std::string ListBases(string_view text)
 		}
 		std::sort(bases.begin(), bases.end(), [](const ItemData *a, const ItemData *b) { return a->iValue > b->iValue; });
 		const int level = MyPlayer->_pLevel;
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}, best first (base value); you're level {:d}:")), wish->text, level));
+		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}; you're level {:d}:")), wish->text, level));
 		for (const ItemData *base : bases) {
 			if (base->iMinMLvl > level)
 				EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  (from character level {:d})")), base->iName, FormatInteger(base->iValue), base->iMinMLvl));
@@ -1085,12 +1085,12 @@ std::string ListAdriaBases(string_view text)
 		return std::string(_("No staff or book Adria stocks can be like that."));
 	std::sort(bases.begin(), bases.end(), [](const Base &a, const Base &b) { return a.value > b.value; });
 	const int level = AdriaStockLevel();
-	EventPlrMsg(fmt::format(fmt::runtime(_("Bases for{:s}, best first; her stock is level {:d}:")), wish->text, level));
+	EventPlrMsg(fmt::format(fmt::runtime(_("Adria's bases for{:s}; her stock is level {:d}:")), wish->text, level));
 	for (const Base &base : bases) {
 		if (base.firstLevel > level)
-			EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  (from stock level {:d})")), base.name, base.firstLevel));
+			EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  (from stock level {:d})")), base.name, FormatInteger(base.value), base.firstLevel));
 		else
-			EventPlrMsg(StrCat("  ", base.name));
+			EventPlrMsg(fmt::format("  {:s}  {:s}", base.name, FormatInteger(base.value)));
 	}
 	return "";
 }
