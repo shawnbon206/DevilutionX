@@ -24,6 +24,7 @@
 #include "pfile.h"
 #include "plrmsg.h"
 #include "qol/chatlog.h"
+#include "qol/disguise.h"
 #include "storm/storm_net.hpp"
 #include "sync.h"
 #include "tmsg.h"
@@ -150,10 +151,15 @@ void NetReceivePlayerData(TPkt *pkt)
 	pkt->hdr.py = myPlayer.position.tile.y;
 	pkt->hdr.targx = target.x;
 	pkt->hdr.targy = target.y;
-	pkt->hdr.php = SDL_SwapLE32(myPlayer._pHitPoints);
-	pkt->hdr.pmhp = SDL_SwapLE32(myPlayer._pMaxHP);
-	pkt->hdr.mana = SDL_SwapLE32(myPlayer._pMana);
-	pkt->hdr.maxmana = SDL_SwapLE32(myPlayer._pMaxMana);
+	int32_t hitPoints;
+	int32_t maxHitPoints;
+	int32_t mana;
+	int32_t maxMana;
+	DisguisedLifeAndMana(*MyPlayer, hitPoints, maxHitPoints, mana, maxMana);
+	pkt->hdr.php = SDL_SwapLE32(hitPoints);
+	pkt->hdr.pmhp = SDL_SwapLE32(maxHitPoints);
+	pkt->hdr.mana = SDL_SwapLE32(mana);
+	pkt->hdr.maxmana = SDL_SwapLE32(maxMana);
 	pkt->hdr.bstr = myPlayer._pBaseStr;
 	pkt->hdr.bmag = myPlayer._pBaseMag;
 	pkt->hdr.bdex = myPlayer._pBaseDex;
@@ -359,7 +365,7 @@ void SendPlayerInfo(int pnum, _cmd_id cmd)
 {
 	PlayerNetPack packed;
 	Player &myPlayer = *MyPlayer;
-	PackNetPlayer(packed, myPlayer);
+	PackDisguisedNetPlayer(packed, myPlayer);
 	multi_send_zero_packet(pnum, cmd, reinterpret_cast<byte *>(&packed), sizeof(PlayerNetPack));
 }
 

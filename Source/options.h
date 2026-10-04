@@ -584,6 +584,8 @@ struct GameplayOptions : OptionCategoryBase {
 	OptionEntryBoolean autoEquipJewelry;
 	/** @brief Only enable 2/3 quests in each game session */
 	OptionEntryBoolean randomizeQuests;
+	/** @brief Show the other players your weapons, armor and jewelry with poor rolls (/disguise). */
+	OptionEntryBoolean disguiseGear;
 	/** @brief Indicates whether or not monster type (Animal, Demon, Undead) is shown along with other monster information. */
 	OptionEntryBoolean showMonsterType;
 	/** @brief Displays item labels for items on the ground.  */

@@ -1076,6 +1076,7 @@ GameplayOptions::GameplayOptions()
     , autoEquipShields("Auto Equip Shields", OptionEntryFlags::None, N_("Auto Equip Shields"), N_("Shields will be automatically equipped on pickup or purchase if enabled."), false)
     , autoEquipJewelry("Auto Equip Jewelry", OptionEntryFlags::None, N_("Auto Equip Jewelry"), N_("Jewelry will be automatically equipped on pickup or purchase if enabled."), false)
     , randomizeQuests("Randomize Quests", OptionEntryFlags::CantChangeInGame, N_("Randomize Quests"), N_("Randomly selecting available quests for new games."), true)
+    , disguiseGear("Disguise Gear", OptionEntryFlags::None, N_("Disguise Gear"), N_("The other players see your weapons, armor and jewelry with the same affixes but poor rolls. /disguise turns it on or off."), false)
     , showMonsterType("Show Monster Type", OptionEntryFlags::None, N_("Show Monster Type"), N_("Hovering over a monster will display the type of monster in the description box in the UI."), false)
     , showItemLabels("Show Item Labels", OptionEntryFlags::None, N_("Show Item Labels"), N_("Show labels for items on the ground when enabled."), false)
     , autoRefillBelt("Auto Refill Belt", OptionEntryFlags::None, N_("Auto Refill Belt"), N_("Refill belt from inventory when belt item is consumed."), false)
@@ -1105,6 +1106,7 @@ std::vector<OptionEntryBase *> GameplayOptions::GetEntries()
 		&friendlyFire,
 		&multiplayerFullQuests,
 		&randomizeQuests,
+		&disguiseGear,
 		&theoQuest,
 		&cowQuest,
 		&runInTown,

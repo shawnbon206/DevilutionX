@@ -36,6 +36,7 @@
 #include "pack.h"
 #include "pfile.h"
 #include "plrmsg.h"
+#include "qol/disguise.h"
 #include "spells.h"
 #include "storm/storm_net.hpp"
 #include "sync.h"
@@ -3016,7 +3017,7 @@ void NetSendCmdChItem(bool bHiPri, uint8_t bLoc, bool forceSpellChange)
 {
 	TCmdChItem cmd {};
 
-	Item &item = MyPlayer->InvBody[bLoc];
+	const Item item = DisguisedItem(MyPlayer->InvBody[bLoc]);
 
 	cmd.bCmd = CMD_CHANGEPLRITEMS;
 	cmd.bLoc = bLoc;
@@ -3059,7 +3060,7 @@ void NetSendCmdChInvItem(bool bHiPri, int invGridIndex)
 	TCmdChItem cmd {};
 
 	int8_t invListIndex = abs(MyPlayer->InvGrid[invGridIndex]) - 1;
-	const Item &item = MyPlayer->InvList[invListIndex];
+	const Item item = DisguisedItem(MyPlayer->InvList[invListIndex]);
 
 	cmd.bCmd = CMD_CHANGEINVITEMS;
 	cmd.bLoc = invGridIndex;
@@ -3075,7 +3076,7 @@ void NetSendCmdChBeltItem(bool bHiPri, int beltIndex)
 {
 	TCmdChItem cmd {};
 
-	const Item &item = MyPlayer->SpdList[beltIndex];
+	const Item item = DisguisedItem(MyPlayer->SpdList[beltIndex]);
 
 	cmd.bCmd = CMD_CHANGEBELTITEMS;
 	cmd.bLoc = beltIndex;

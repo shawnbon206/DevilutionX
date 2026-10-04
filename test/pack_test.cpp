@@ -1,8 +1,11 @@
 #include <cstdint>
+#include <cstring>
 
 #include <gtest/gtest.h>
 
+#include "options.h"
 #include "pack.h"
+#include "qol/disguise.h"
 #include "utils/paths.h"
 
 namespace devilution {
@@ -955,6 +958,41 @@ bool TestNetPackValidation()
 TEST_F(NetPackTest, UnPackNetPlayer_valid)
 {
 	ASSERT_TRUE(TestNetPackValidation());
+}
+
+// With /disguise on, the other games get the same items with poorer rolls, and the totals worked out from them, which
+// pass their check (UnPackNetPlayer drops a player whose don't); the player's own items are left as they were.
+TEST_F(NetPackTest, UnPackNetPlayer_disguised)
+{
+	// Zeroed, as packing an empty item fills in only its index.
+	PlayerNetPack before {};
+	PackNetPlayer(before, *MyPlayer);
+
+	sgOptions.Gameplay.disguiseGear.SetValue(true);
+	PlayerNetPack packed {};
+	PackDisguisedNetPlayer(packed, *MyPlayer);
+	PlayerNetPack again {};
+	PackDisguisedNetPlayer(again, *MyPlayer);
+	sgOptions.Gameplay.disguiseGear.SetValue(false);
+
+	PlayerNetPack after {};
+	PackNetPlayer(after, *MyPlayer);
+	EXPECT_EQ(memcmp(&before, &after, sizeof(before)), 0) << "the real items or stats changed";
+	EXPECT_EQ(memcmp(&packed, &again, sizeof(packed)), 0) << "the same items got another disguise";
+
+	ASSERT_TRUE(UnPackNetPlayer(packed, Players[1]));
+	int disguised = 0;
+	for (int i = 0; i < NUM_INVLOC; i++) {
+		const Item &real = MyPlayer->InvBody[i];
+		const Item &seen = Players[1].InvBody[i];
+		EXPECT_EQ(seen.IDidx, real.IDidx);
+		EXPECT_STREQ(seen._iIName, real._iIName);
+		EXPECT_LE(seen._iIvalue, real._iIvalue) << real._iIName;
+		EXPECT_LE(seen._iAC, real._iAC) << real._iIName;
+		if (seen._iSeed != real._iSeed)
+			disguised++;
+	}
+	EXPECT_GT(disguised, 0);
 }
 
 TEST_F(NetPackTest, UnPackNetPlayer_invalid_class)
