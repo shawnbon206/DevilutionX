@@ -643,9 +643,9 @@ void SearchAutomapItem(const Surface &out, const Displacement &myPlayerOffset, i
 void DrawAutomapPlr(const Surface &out, const Displacement &myPlayerOffset, int playerId)
 {
 	Player &player = Players[playerId];
-	// Hostile players are drawn too, in red like their names.
+	// Hostile players are drawn too, in white (the item labels' white, which every level's palette has).
 	const bool hostile = &player != MyPlayer && !player.friendlyMode;
-	int playerColor = hostile ? PAL8_RED : MapColorsPlayer + (8 * playerId) % 128;
+	int playerColor = hostile ? PAL16_GRAY + 5 : MapColorsPlayer + (8 * playerId) % 128;
 
 	Point tile = player.position.tile;
 	if (player._pmode == PM_WALK_SIDEWAYS) {
