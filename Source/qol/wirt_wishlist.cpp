@@ -754,34 +754,39 @@ std::string ListBases(string_view text)
 				*same = &data;
 		}
 		std::sort(bases.begin(), bases.end(), [](const ItemData *a, const ItemData *b) { return a->iValue > b->iValue; });
-		const int level = MyPlayer->_pLevel;
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}; you're level {:d}:")), wish->text, level));
-		for (const ItemData *base : bases) {
-			if (base->iMinMLvl > level)
-				EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  (from character level {:d})")), base->iName, FormatInteger(base->iValue), base->iMinMLvl));
-			else
-				EventPlrMsg(fmt::format("  {:s}  {:s}", base->iName, FormatInteger(base->iValue)));
-		}
+		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}:")), wish->text));
+		for (const ItemData *base : bases)
+			EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  level {:d}+")), base->iName, FormatInteger(base->iValue), base->iMinMLvl));
 		return "";
 	}
 	// Only what can never happen stops the list; outside the level where Wirt rolls the affixes it's priced as within
 	// it, with a note, so you can see ahead.
 	if (const std::string reason = WhyImpossible(*wish, false, false); !reason.empty())
 		return reason;
-	const std::string levelNote = WhyImpossible(*wish, false, true);
-	const std::vector<std::pair<std::string, int>> prices = BasePrices(*wish, SoldTypes(*wish), levelNote.empty() ? MyPlayer->_pLevel : -1);
-	if (prices.empty())
-		return std::string(_("No base Wirt sells can have that."));
-
+	// Each base with the character levels at which Wirt can roll it with the affixes (the base's own level and the
+	// affixes' windows); bases that never come with them at one level are left out.
+	const std::vector<std::string> sold = SoldTypes(*wish);
 	std::vector<std::pair<std::string, int>> under;
 	std::vector<std::pair<std::string, int>> over;
-	for (const auto &entry : prices)
+	std::vector<std::string> levelsOf;
+	for (const auto &entry : BasePrices(*wish, sold, -1)) {
+		Wishlist narrowed = *wish;
+		narrowed.bases = { AsciiStrToLower(entry.first) };
+		const std::vector<int> levels = WishLevels(narrowed, sold);
+		if (levels.empty())
+			continue;
 		(entry.second <= MaxBoyValue ? under : over).push_back(entry);
-	EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's starting prices for{:s}; you're level {:d}:")), wish->text, MyPlayer->_pLevel));
+		if (entry.second <= MaxBoyValue)
+			levelsOf.push_back(RangesText(levels));
+	}
+	if (under.empty() && over.empty())
+		return fmt::format(fmt::runtime(_("Wirt never rolls that on any base at one character level: {:s}.")), AffixLevelsText(*wish, AffixItemType::Misc | AffixItemType::Bow | AffixItemType::Weapon | AffixItemType::Shield | AffixItemType::Armor));
+
+	EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's starting prices for{:s}:")), wish->text));
 	constexpr size_t Shown = 8;
 	for (size_t i = 0; i < under.size() && i < Shown; i++) {
-		const auto &entry = under[under.size() - 1 - i];
-		EventPlrMsg(fmt::format("  {:s}  {:s}", entry.first, FormatInteger(entry.second)));
+		const size_t index = under.size() - 1 - i;
+		EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  levels {:s}")), under[index].first, FormatInteger(under[index].second), levelsOf[index]));
 	}
 	if (under.size() > Shown)
 		EventPlrMsg(fmt::format(fmt::runtime(_("  and {:d} cheaper")), under.size() - Shown));
@@ -793,8 +798,6 @@ std::string ListBases(string_view text)
 			names += StrCat(i == 0 ? "" : ", ", over[i].first, " ", FormatInteger(over[i].second));
 		EventPlrMsg(fmt::format(fmt::runtime(_("  over {:s}: {:s}{:s}")), FormatInteger(MaxBoyValue), names, over.size() > 4 ? ", ..." : ""));
 	}
-	if (!levelNote.empty())
-		EventPlrMsg(StrCat("  ", levelNote));
 	return "";
 }
 
@@ -1084,14 +1087,9 @@ std::string ListAdriaBases(string_view text)
 	if (bases.empty())
 		return std::string(_("No staff or book Adria stocks can be like that."));
 	std::sort(bases.begin(), bases.end(), [](const Base &a, const Base &b) { return a.value > b.value; });
-	const int level = AdriaStockLevel();
-	EventPlrMsg(fmt::format(fmt::runtime(_("Adria's bases for{:s}; her stock is level {:d}:")), wish->text, level));
-	for (const Base &base : bases) {
-		if (base.firstLevel > level)
-			EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  (from stock level {:d})")), base.name, FormatInteger(base.value), base.firstLevel));
-		else
-			EventPlrMsg(fmt::format("  {:s}  {:s}", base.name, FormatInteger(base.value)));
-	}
+	EventPlrMsg(fmt::format(fmt::runtime(_("Adria's bases for{:s}:")), wish->text));
+	for (const Base &base : bases)
+		EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  stock level {:d}+")), base.name, FormatInteger(base.value), base.firstLevel));
 	return "";
 }
 
