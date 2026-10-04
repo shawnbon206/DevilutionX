@@ -755,12 +755,12 @@ std::string ListBases(string_view text)
 		}
 		std::sort(bases.begin(), bases.end(), [](const ItemData *a, const ItemData *b) { return a->iValue > b->iValue; });
 		const int level = MyPlayer->_pLevel;
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}, best first; you're level {:d}:")), wish->text, level));
+		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt's bases for{:s}, best first (base value); you're level {:d}:")), wish->text, level));
 		for (const ItemData *base : bases) {
 			if (base->iMinMLvl > level)
-				EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  (from character level {:d})")), base->iName, base->iMinMLvl));
+				EventPlrMsg(fmt::format(fmt::runtime(_("  {:s}  {:s}  (from character level {:d})")), base->iName, FormatInteger(base->iValue), base->iMinMLvl));
 			else
-				EventPlrMsg(StrCat("  ", base->iName));
+				EventPlrMsg(fmt::format("  {:s}  {:s}", base->iName, FormatInteger(base->iValue)));
 		}
 		return "";
 	}
