@@ -1173,11 +1173,27 @@ struct Whereabouts {
 std::array<Whereabouts, MAX_PLRS> PlayerWhereabouts;
 
 /**
- * How long the info box has to stay empty before the list shows, in ms, so moving the cursor from one button to the
- * next doesn't flash it; and when it last held something.
+ * The panel's two L-shaped button areas: down the left edge (character, quests, map, menu) with the chat button in the
+ * corner, and its mirror on the right (inventory, spells, friendly fire). Gaps between buttons included.
  */
-constexpr uint32_t PlayerListDelay = 300;
-uint32_t InfoBoxLastUsed = 0;
+constexpr std::array<SDL_Rect, 4> PanelButtonAreas { {
+	{ 9, 9, 71, 114 },
+	{ 80, 91, 40, 32 },
+	{ 560, 9, 71, 114 },
+	{ 527, 91, 33, 32 },
+} };
+
+/** Whether the cursor is among the panel's buttons, where the info box stays clear rather than flash the list. */
+bool IsCursorAmongPanelButtons()
+{
+	const Point panel = GetMainPanel().position;
+	for (const SDL_Rect &area : PanelButtonAreas) {
+		const Rectangle rect { panel + Displacement { area.x, area.y }, Size { area.w, area.h } };
+		if (rect.contains(MousePosition))
+			return true;
+	}
+	return false;
+}
 
 /** How long a player's line hops after they change level, in ms, and how many hops it makes. */
 constexpr uint32_t HopTime = 1200;
@@ -1296,11 +1312,9 @@ void DrawInfoBox(const Surface &out)
 	}
 	if (gbIsMultiplayer)
 		UpdatePlayerWhereabouts();
-	if (!InfoString.empty() || talkflag)
-		InfoBoxLastUsed = SDL_GetTicks();
 	if (!InfoString.empty())
 		PrintInfo(out);
-	else if (gbIsMultiplayer && !talkflag && SDL_GetTicks() - InfoBoxLastUsed >= PlayerListDelay)
+	else if (gbIsMultiplayer && !talkflag && !IsCursorAmongPanelButtons())
 		DrawPlayerList(out);
 }
 
