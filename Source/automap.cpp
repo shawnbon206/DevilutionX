@@ -23,6 +23,7 @@
 #include "levels/setmaps.h"
 #include "player.h"
 #include "utils/language.h"
+#include "utils/str_cat.hpp"
 #include "utils/stdcompat/algorithm.hpp"
 #include "utils/ui_fwd.h"
 #include "utils/utf8.hpp"
@@ -851,19 +852,19 @@ void UpdatePlayerWhereabouts()
 	}
 }
 
-/** Where a player is, as the left side names your own level: "Town", "Level 12", a quest level's name. */
+/** Where a player is, as seed search codes put it: "12" for a dungeon level, "s5" for a quest level, or "town". */
 std::string WhereaboutsName(const Player &player)
 {
 	if (player.plrIsOnSetLevel)
-		return std::string(_(QuestLevelNames[player.plrlevel]));
+		return fmt::format("s{:d}", player.plrlevel);
 	if (player.plrlevel == 0)
-		return std::string(_("Town"));
-	return fmt::format(fmt::runtime(_("Level {:d}")), player.plrlevel);
+		return std::string(_("town"));
+	return fmt::format("{:d}", player.plrlevel);
 }
 
 /**
- * The other players and where they are, down the right side, as the automap's game details are down the left: the
- * name red for a hostile player and gold for a friendly one, as in the chat panel. A line hops like a taskbar button when its
+ * The other players and where they are, "Bob 12", down the right side as the automap's game details are down the
+ * left, and in their white; a hostile player's line is red. A line hops like a taskbar button when its
  * player changes level, so someone portalling about looking for players stands out.
  */
 void DrawAutomapPlayerList(const Surface &out)
@@ -882,9 +883,8 @@ void DrawAutomapPlayerList(const Surface &out)
 			const float progress = static_cast<float>(since) / HopTime;
 			hop = static_cast<int>(6.0F * (1.0F - progress) * std::abs(std::sin(progress * Hops * 3.14159265F)));
 		}
-		const UiFlags nameColor = player.friendlyMode ? UiFlags::ColorWhitegold : UiFlags::ColorRed;
-		DrawStringWithColors(out, "{0}: {1}", { { player._pName, nameColor }, { WhereaboutsName(player), UiFlags::ColorWhite } },
-		    { { 0, y - hop }, { out.w() - 8, LineHeight } }, { UiFlags::AlignRight });
+		DrawString(out, StrCat(player._pName, " ", WhereaboutsName(player)), { { 0, y - hop }, { out.w() - 8, LineHeight } },
+		    { UiFlags::AlignRight | (player.friendlyMode ? UiFlags::ColorWhite : UiFlags::ColorRed) });
 		y += LineHeight;
 	}
 }
