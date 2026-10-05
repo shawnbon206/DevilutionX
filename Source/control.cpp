@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -1162,6 +1163,82 @@ void FreeControlPan()
 	FreeModifierHints();
 }
 
+/** Where each player was last seen (level, and whether it's a quest level), and when that last changed. */
+struct Whereabouts {
+	bool known = false;
+	uint8_t level = 0;
+	bool setLevel = false;
+	uint32_t changedAt = 0;
+};
+std::array<Whereabouts, MAX_PLRS> PlayerWhereabouts;
+
+/** How long a player's line hops after they change level, in ms, and how many hops it makes. */
+constexpr uint32_t HopTime = 1200;
+constexpr int Hops = 3;
+
+/** Notes the players who have changed level since the last frame. A player seen for the first time doesn't hop. */
+void UpdatePlayerWhereabouts()
+{
+	for (size_t i = 0; i < Players.size() && i < PlayerWhereabouts.size(); i++) {
+		const Player &player = Players[i];
+		Whereabouts &seen = PlayerWhereabouts[i];
+		if (!player.plractive) {
+			seen.known = false;
+			continue;
+		}
+		if (!seen.known)
+			seen = { true, player.plrlevel, player.plrIsOnSetLevel, 0 };
+		else if (seen.level != player.plrlevel || seen.setLevel != player.plrIsOnSetLevel)
+			seen = { true, player.plrlevel, player.plrIsOnSetLevel, SDL_GetTicks() };
+	}
+}
+
+/** Where a player is, as seed search codes put it: "12" for a dungeon level, "s5" for a quest level, or "town". */
+std::string WhereaboutsName(const Player &player)
+{
+	if (player.plrIsOnSetLevel)
+		return fmt::format("s{:d}", player.plrlevel);
+	if (player.plrlevel == 0)
+		return std::string(_("town"));
+	return fmt::format("{:d}", player.plrlevel);
+}
+
+/**
+ * With nothing else in the info box, the other players and where they are, "Bob 12", one a line, laid out like the
+ * text shown for a monster under the cursor (PrintInfo), and red for a hostile player. A line hops like a taskbar
+ * button when its player changes level, so someone portalling about looking for players stands out.
+ */
+void DrawPlayerList(const Surface &out)
+{
+	std::vector<size_t> others;
+	for (size_t i = 0; i < Players.size() && i < PlayerWhereabouts.size(); i++) {
+		if (&Players[i] != MyPlayer && Players[i].plractive)
+			others.push_back(i);
+	}
+	if (others.empty())
+		return;
+
+	// PrintInfo's spacing for this many lines.
+	const int space[] = { 18, 12, 6, 3, 0 };
+	const int spacing = space[std::min<size_t>(4, others.size() - 1)];
+	const int lineHeight = 12 + spacing;
+	const Rectangle infoArea { GetMainPanel().position + InfoBoxTopLeft, InfoBoxSize };
+	int y = infoArea.position.y + (infoArea.size.height - lineHeight * static_cast<int>(others.size())) / 2 + spacing / 2;
+	const uint32_t now = SDL_GetTicks();
+	for (const size_t i : others) {
+		const Player &player = Players[i];
+		int hop = 0;
+		const uint32_t since = now - PlayerWhereabouts[i].changedAt;
+		if (PlayerWhereabouts[i].changedAt != 0 && since < HopTime) {
+			const float progress = static_cast<float>(since) / HopTime;
+			hop = static_cast<int>(6.0F * (1.0F - progress) * std::abs(std::sin(progress * Hops * 3.14159265F)));
+		}
+		DrawString(out, StrCat(player._pName, " ", WhereaboutsName(player)), { { infoArea.position.x, y - hop }, { infoArea.size.width, lineHeight } },
+		    { (player.friendlyMode ? UiFlags::ColorWhite : UiFlags::ColorRed) | UiFlags::AlignCenter | UiFlags::KerningFitSpacing, 2 });
+		y += lineHeight;
+	}
+}
+
 void DrawInfoBox(const Surface &out)
 {
 	DrawPanelBox(out, { 177, 62, InfoBoxSize.width, InfoBoxSize.height }, GetMainPanel().position + InfoBoxTopLeft);
@@ -1210,8 +1287,12 @@ void DrawInfoBox(const Surface &out)
 			AddPanelString(fmt::format(fmt::runtime(_("Hit Points {:d} of {:d}")), target._pHitPoints >> 6, target._pMaxHP >> 6));
 		}
 	}
+	if (gbIsMultiplayer)
+		UpdatePlayerWhereabouts();
 	if (!InfoString.empty())
 		PrintInfo(out);
+	else if (gbIsMultiplayer && !talkflag)
+		DrawPlayerList(out);
 }
 
 void CheckLvlBtn()

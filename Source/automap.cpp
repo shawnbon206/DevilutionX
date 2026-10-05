@@ -5,12 +5,7 @@
  */
 #include "automap.h"
 
-#include <array>
-#include <cmath>
 #include <cstdint>
-#include <vector>
-
-#include <SDL.h>
 
 #include <fmt/format.h>
 
@@ -23,7 +18,6 @@
 #include "levels/setmaps.h"
 #include "player.h"
 #include "utils/language.h"
-#include "utils/str_cat.hpp"
 #include "utils/stdcompat/algorithm.hpp"
 #include "utils/ui_fwd.h"
 #include "utils/utf8.hpp"
@@ -822,73 +816,6 @@ std::unique_ptr<AutomapTile[]> LoadAutomapData(size_t &tileCount)
 	}
 }
 
-/** Where each player was last seen (level, and whether it's a quest level), and when that last changed. */
-struct Whereabouts {
-	bool known = false;
-	uint8_t level = 0;
-	bool setLevel = false;
-	uint32_t changedAt = 0;
-};
-std::array<Whereabouts, MAX_PLRS> PlayerWhereabouts;
-
-/** How long a player's line hops after they change level, in ms, and how many hops it makes. */
-constexpr uint32_t HopTime = 1200;
-constexpr int Hops = 3;
-
-/** Notes the players who have changed level since the last frame. A player seen for the first time doesn't hop. */
-void UpdatePlayerWhereabouts()
-{
-	for (size_t i = 0; i < Players.size() && i < PlayerWhereabouts.size(); i++) {
-		const Player &player = Players[i];
-		Whereabouts &seen = PlayerWhereabouts[i];
-		if (!player.plractive) {
-			seen.known = false;
-			continue;
-		}
-		if (!seen.known)
-			seen = { true, player.plrlevel, player.plrIsOnSetLevel, 0 };
-		else if (seen.level != player.plrlevel || seen.setLevel != player.plrIsOnSetLevel)
-			seen = { true, player.plrlevel, player.plrIsOnSetLevel, SDL_GetTicks() };
-	}
-}
-
-/** Where a player is, as seed search codes put it: "12" for a dungeon level, "s5" for a quest level, or "town". */
-std::string WhereaboutsName(const Player &player)
-{
-	if (player.plrIsOnSetLevel)
-		return fmt::format("s{:d}", player.plrlevel);
-	if (player.plrlevel == 0)
-		return std::string(_("town"));
-	return fmt::format("{:d}", player.plrlevel);
-}
-
-/**
- * The other players and where they are, "Bob 12", down the right side as the automap's game details are down the
- * left, and in their white; a hostile player's line is red. A line hops like a taskbar button when its
- * player changes level, so someone portalling about looking for players stands out.
- */
-void DrawAutomapPlayerList(const Surface &out)
-{
-	UpdatePlayerWhereabouts();
-	constexpr int LineHeight = 15;
-	int y = 8;
-	const uint32_t now = SDL_GetTicks();
-	for (size_t i = 0; i < Players.size() && i < PlayerWhereabouts.size(); i++) {
-		const Player &player = Players[i];
-		if (&player == MyPlayer || !player.plractive)
-			continue;
-		int hop = 0;
-		const uint32_t since = now - PlayerWhereabouts[i].changedAt;
-		if (PlayerWhereabouts[i].changedAt != 0 && since < HopTime) {
-			const float progress = static_cast<float>(since) / HopTime;
-			hop = static_cast<int>(6.0F * (1.0F - progress) * std::abs(std::sin(progress * Hops * 3.14159265F)));
-		}
-		DrawString(out, StrCat(player._pName, " ", WhereaboutsName(player)), { { 0, y - hop }, { out.w() - 8, LineHeight } },
-		    { UiFlags::AlignRight | (player.friendlyMode ? UiFlags::ColorWhite : UiFlags::ColorRed) });
-		y += LineHeight;
-	}
-}
-
 } // namespace
 
 bool AutomapActive;
@@ -1065,12 +992,6 @@ void DrawAutomap(const Surface &out)
 #endif
 
 	DrawAutomapText(out);
-}
-
-void DrawPlayerList(const Surface &out)
-{
-	if (gbIsMultiplayer && !IsRightPanelOpen())
-		DrawAutomapPlayerList(out);
 }
 
 void UpdateAutomapExplorer(Point map, MapExplorationType explorer)

@@ -1168,7 +1168,6 @@ void DrawView(const Surface &out, Point startPosition)
 	if (AutomapActive) {
 		DrawAutomap(out.subregionY(0, gnViewportHeight));
 	}
-	DrawPlayerList(out.subregionY(0, gnViewportHeight));
 #ifdef _DEBUG
 	bool debugGridTextNeeded = IsDebugGridTextNeeded();
 	if (debugGridTextNeeded || DebugGrid) {
