@@ -94,6 +94,12 @@ void AutomapZoomOut();
 void DrawAutomap(const Surface &out);
 
 /**
+ * @brief In multiplayer, the other players and where they are, at the top right (mirroring the automap's game details
+ * at the top left), unless a panel covers the right side. A player's line hops when they change level.
+ */
+void DrawPlayerList(const Surface &out);
+
+/**
  * @brief Updates automap explorer at point if value is higher than existing.
  */
 void UpdateAutomapExplorer(Point map, MapExplorationType explorer);

@@ -1162,17 +1162,6 @@ void FreeControlPan()
 	FreeModifierHints();
 }
 
-/** With nothing else in the info box, the names of the hostile players, one a line, red as in the chat panel. */
-void ListHostilePlayers()
-{
-	for (const Player &player : Players) {
-		if (&player == MyPlayer || !player.plractive || player.friendlyMode)
-			continue;
-		InfoColor = UiFlags::ColorRed;
-		AddPanelString(string_view(player._pName));
-	}
-}
-
 void DrawInfoBox(const Surface &out)
 {
 	DrawPanelBox(out, { 177, 62, InfoBoxSize.width, InfoBoxSize.height }, GetMainPanel().position + InfoBoxTopLeft);
@@ -1221,8 +1210,6 @@ void DrawInfoBox(const Surface &out)
 			AddPanelString(fmt::format(fmt::runtime(_("Hit Points {:d} of {:d}")), target._pHitPoints >> 6, target._pMaxHP >> 6));
 		}
 	}
-	if (InfoString.empty() && gbIsMultiplayer)
-		ListHostilePlayers();
 	if (!InfoString.empty())
 		PrintInfo(out);
 }
