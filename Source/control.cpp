@@ -1172,6 +1172,13 @@ struct Whereabouts {
 };
 std::array<Whereabouts, MAX_PLRS> PlayerWhereabouts;
 
+/**
+ * How long the info box has to stay empty before the list shows, in ms, so moving the cursor from one button to the
+ * next doesn't flash it; and when it last held something.
+ */
+constexpr uint32_t PlayerListDelay = 300;
+uint32_t InfoBoxLastUsed = 0;
+
 /** How long a player's line hops after they change level, in ms, and how many hops it makes. */
 constexpr uint32_t HopTime = 1200;
 constexpr int Hops = 3;
@@ -1289,9 +1296,11 @@ void DrawInfoBox(const Surface &out)
 	}
 	if (gbIsMultiplayer)
 		UpdatePlayerWhereabouts();
+	if (!InfoString.empty() || talkflag)
+		InfoBoxLastUsed = SDL_GetTicks();
 	if (!InfoString.empty())
 		PrintInfo(out);
-	else if (gbIsMultiplayer && !talkflag)
+	else if (gbIsMultiplayer && !talkflag && SDL_GetTicks() - InfoBoxLastUsed >= PlayerListDelay)
 		DrawPlayerList(out);
 }
 
