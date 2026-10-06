@@ -605,28 +605,6 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/killall"), N_("Kills every monster on your level, or with -a on levels 1 to 16, but Diablo unless -d (single player and offline games only)."), N_("[-a] [-d]"), &TextCmdKillAll },
 };
 
-void UpdateKillAllSweep()
-{
-	if (!Sweep.active || MyPlayer == nullptr)
-		return;
-	Player &player = *MyPlayer;
-	// Mid level change, wait for the new level.
-	if (player._pmode == PM_NEWLVL)
-		return;
-	if (setlevel || currlevel != Sweep.nextLevel) {
-		StartNewLvl(player, WM_DIABNEXTLVL, Sweep.nextLevel);
-		return;
-	}
-	Sweep.killed += KillAllOnLevel(Sweep.killDiablo);
-	if (Sweep.nextLevel == 16) {
-		Sweep.active = false;
-		EventPlrMsg(fmt::format(fmt::runtime(ngettext("Cleared levels 1 to 16: {:d} monster killed.", "Cleared levels 1 to 16: {:d} monsters killed.", Sweep.killed)), Sweep.killed));
-		return;
-	}
-	Sweep.nextLevel++;
-	StartNewLvl(player, WM_DIABNEXTLVL, Sweep.nextLevel);
-}
-
 bool CheckTextCommand(const string_view text)
 {
 	if (text.size() < 1 || text[0] != '/')
@@ -741,6 +719,28 @@ bool IsLevelUpButtonVisible()
 }
 
 } // namespace
+
+void UpdateKillAllSweep()
+{
+	if (!Sweep.active || MyPlayer == nullptr)
+		return;
+	Player &player = *MyPlayer;
+	// Mid level change, wait for the new level.
+	if (player._pmode == PM_NEWLVL)
+		return;
+	if (setlevel || currlevel != Sweep.nextLevel) {
+		StartNewLvl(player, WM_DIABNEXTLVL, Sweep.nextLevel);
+		return;
+	}
+	Sweep.killed += KillAllOnLevel(Sweep.killDiablo);
+	if (Sweep.nextLevel == 16) {
+		Sweep.active = false;
+		EventPlrMsg(fmt::format(fmt::runtime(ngettext("Cleared levels 1 to 16: {:d} monster killed.", "Cleared levels 1 to 16: {:d} monsters killed.", Sweep.killed)), Sweep.killed));
+		return;
+	}
+	Sweep.nextLevel++;
+	StartNewLvl(player, WM_DIABNEXTLVL, Sweep.nextLevel);
+}
 
 void CalculatePanelAreas()
 {
