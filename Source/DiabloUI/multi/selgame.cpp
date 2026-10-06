@@ -720,6 +720,17 @@ bool UiSelectGame(GameData *gameData, int *playerId)
 	gdwPlayerId = playerId;
 	m_game_data = gameData;
 	selgame_Init();
+	// /killall -r: straight into a new offline game at the difficulty and speed of the last one.
+	if (provider == SELCONN_LOOPBACK && KillAllWantsNewGame()) {
+		selgame_enteringGame = true;
+		selgame_selectedGame = 0;
+		selgame_endMenu = false;
+		selgame_Password_Select(0);
+		if (selgame_endMenu) {
+			selgame_Free();
+			return true;
+		}
+	}
 	HighlightedItem = 0;
 	selgame_GameSelection_Init();
 

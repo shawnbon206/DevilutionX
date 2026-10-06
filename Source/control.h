@@ -177,6 +177,12 @@ void DrawInfoBox(const Surface &out);
 
 /** @brief Test: drives /killall -a, a level at a time; called each game tick. */
 void UpdateKillAllSweep();
+
+/** @brief Test: whether /killall -r wants the next new offline game made without the menus (counts it if so). */
+bool KillAllWantsNewGame();
+
+/** @brief Test: whether /killall killed Diablo, so the ending can skip its movies (asked once per ending). */
+bool KillAllSkipsEnding();
 void CheckLvlBtn();
 void ReleaseLvlBtn();
 void DrawLevelUpIcon(const Surface &out);

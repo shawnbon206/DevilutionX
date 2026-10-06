@@ -545,6 +545,9 @@ struct {
 	bool diablo = false;
 } Cleared;
 
+/** Whether Diablo was killed by /killall, so the ending can skip its movies. */
+bool KilledDiabloByCommand = false;
+
 /** Forgets what was cleared if it was in another game. */
 void ForgetClearedInOtherGames()
 {
@@ -575,11 +578,25 @@ size_t KillAllOnLevel(bool killDiablo)
 			Cleared.questLevels[currlevel] = true;
 	} else if (currlevel >= 1 && currlevel <= 16) {
 		Cleared.levels[currlevel] = true;
-		if (currlevel == 16 && killDiablo)
+		if (currlevel == 16 && killDiablo) {
 			Cleared.diablo = true;
+			KilledDiabloByCommand = true;
+		}
 	}
 	return targets.size();
 }
+
+/**
+ * /killall -r: how many more new offline games to sweep, with the options to sweep them with, and whether a new one
+ * has just been made and is waiting for its sweep. Lives across games, as the game it's for doesn't exist yet.
+ */
+struct {
+	int remaining = 0;
+	bool waitingForGame = false;
+	int first = 0;
+	int last = 0;
+	bool questLevels = false;
+} Repeat;
 
 /** A level the sweep visits: a dungeon level, or a quest level (set level). */
 struct SweepStop {
@@ -634,19 +651,46 @@ void GoToSweepStop(const SweepStop &stop)
 /**
  * Test: /killall kills every monster on this level; with a range ("9-16", or "12" for one level), or -a for 1-16, it
  * goes through those dungeon levels clearing each it hasn't already cleared in this game, through the game's own level
- * changes, and leaves you on the last; -q takes in the quest levels entered from them (Lazarus' lair after 15), and -d
- * kills Diablo too. Options in any order. Single player and offline games only: elsewhere it would take the other
+ * changes, and leaves you on the last; -q takes in the quest levels entered from them (Lazarus' lair after 15), -d
+ * kills Diablo too, and -r N does it all again in N more new offline games, each ended by Diablo. Options in any order. Single player and offline games only: elsewhere it would take the other
  * players' monsters.
  */
+/** Lays out the sweep from one dungeon level to another, with their quest levels if asked; false if nothing's left. */
+bool PlanSweep(int first, int last, bool questLevels, bool killDiablo)
+{
+	ForgetClearedInOtherGames();
+	Sweep.stops.clear();
+	for (int level = first; level <= last; level++) {
+		if (!Cleared.levels[level] || (level == 16 && killDiablo && !Cleared.diablo))
+			Sweep.stops.push_back({ static_cast<uint8_t>(level), false });
+		if (!questLevels)
+			continue;
+		for (const Quest &quest : Quests) {
+			if (quest._qlevel == level && quest._qslvl != 0 && quest._qactive != QUEST_NOTAVAIL
+			    && quest._qslvl < Cleared.questLevels.size() && !Cleared.questLevels[quest._qslvl])
+				Sweep.stops.push_back({ static_cast<uint8_t>(quest._qslvl), true });
+		}
+	}
+	if (Sweep.stops.empty())
+		return false;
+	Sweep.active = true;
+	Sweep.next = 0;
+	Sweep.killDiablo = killDiablo;
+	Sweep.killed = 0;
+	return true;
+}
+
 std::string TextCmdKillAll(const string_view parameter)
 {
 	if (gbIsMultiplayer && !IsLoopback)
 		return std::string(_("/killall only works in single player and offline games."));
-	const std::string usage(_("Use /killall for this level, /killall 9-16 (or 12) for those levels, or /killall -a for 1-16; add -q for their quest levels and -d to kill Diablo too."));
+	const std::string usage(_("Use /killall for this level, /killall 9-16 (or 12) for those levels, or /killall -a for 1-16; add -q for their quest levels, -d to kill Diablo too, and -r N to repeat in N more new games."));
 	int first = 0;
 	int last = 0;
 	bool killDiablo = false;
 	bool questLevels = false;
+	int repeats = 0;
+	bool repeatsNext = false;
 	string_view rest = parameter;
 	while (!rest.empty()) {
 		const size_t space = rest.find(' ');
@@ -655,7 +699,13 @@ std::string TextCmdKillAll(const string_view parameter)
 		int to = 0;
 		char extra = 0;
 		const std::string text(word);
-		if (word == "-a") {
+		if (repeatsNext) {
+			repeatsNext = false;
+			if (std::sscanf(text.c_str(), "%d%c", &repeats, &extra) != 1 || repeats < 1)
+				return usage;
+		} else if (word == "-r") {
+			repeatsNext = true;
+		} else if (word == "-a") {
 			first = 1;
 			last = 16;
 		} else if (word == "-d") {
@@ -673,31 +723,21 @@ std::string TextCmdKillAll(const string_view parameter)
 		}
 		rest = space == string_view::npos ? string_view {} : rest.substr(space + 1);
 	}
+	if (repeatsNext)
+		return usage;
+	if (repeats > 0 && (!IsLoopback || !killDiablo || last != 16))
+		return std::string(_("-r repeats in new offline games, each ended by Diablo's death: it needs an offline game, -d, and a range up to 16."));
 	if (first == 0) {
 		const size_t killed = KillAllOnLevel(killDiablo);
 		return fmt::format(fmt::runtime(ngettext("Killed {:d} monster.", "Killed {:d} monsters.", killed)), killed);
 	}
 
-	ForgetClearedInOtherGames();
-	Sweep.stops.clear();
-	for (int level = first; level <= last; level++) {
-		if (!Cleared.levels[level] || (level == 16 && killDiablo && !Cleared.diablo))
-			Sweep.stops.push_back({ static_cast<uint8_t>(level), false });
-		if (!questLevels)
-			continue;
-		for (const Quest &quest : Quests) {
-			if (quest._qlevel == level && quest._qslvl != 0 && quest._qactive != QUEST_NOTAVAIL
-			    && quest._qslvl < Cleared.questLevels.size() && !Cleared.questLevels[quest._qslvl])
-				Sweep.stops.push_back({ static_cast<uint8_t>(quest._qslvl), true });
-		}
-	}
-	if (Sweep.stops.empty())
+	if (!PlanSweep(first, last, questLevels, killDiablo))
 		return first == last ? fmt::format(fmt::runtime(_("Level {:d} is already cleared.")), first)
 		                     : fmt::format(fmt::runtime(_("Levels {:d} to {:d} are already cleared.")), first, last);
-	Sweep.active = true;
-	Sweep.next = 0;
-	Sweep.killDiablo = killDiablo;
-	Sweep.killed = 0;
+	Repeat = { repeats, false, first, last, questLevels };
+	if (repeats > 0)
+		return fmt::format(fmt::runtime(_("Clearing {:d} levels, then again in {:d} more new games.")), Sweep.stops.size(), repeats);
 	return fmt::format(fmt::runtime(ngettext("Clearing {:d} level.", "Clearing {:d} levels.", Sweep.stops.size())), Sweep.stops.size());
 }
 
@@ -707,7 +747,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/killall"), N_("Kills every monster on your level, or on a range of levels (9-16, or -a for 1-16) and with -q their quest levels, but Diablo unless -d (single player and offline games only)."), N_("[<level> | <from>-<to> | -a] [-q] [-d]"), &TextCmdKillAll },
+	{ N_("/killall"), N_("Kills every monster on your level, or on a range of levels (9-16, or -a for 1-16) and with -q their quest levels, but Diablo unless -d (single player and offline games only)."), N_("[<level> | <from>-<to> | -a] [-q] [-d] [-r <games>]"), &TextCmdKillAll },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -825,8 +865,28 @@ bool IsLevelUpButtonVisible()
 
 } // namespace
 
+bool KillAllWantsNewGame()
+{
+	if (Repeat.remaining <= 0)
+		return false;
+	Repeat.remaining--;
+	Repeat.waitingForGame = true;
+	return true;
+}
+
+bool KillAllSkipsEnding()
+{
+	const bool skip = KilledDiabloByCommand;
+	KilledDiabloByCommand = false;
+	return skip;
+}
+
 void UpdateKillAllSweep()
 {
+	if (Repeat.waitingForGame && MyPlayer != nullptr && MyPlayer->_pmode != PM_NEWLVL) {
+		Repeat.waitingForGame = false;
+		PlanSweep(Repeat.first, Repeat.last, Repeat.questLevels, true);
+	}
 	if (!Sweep.active || MyPlayer == nullptr)
 		return;
 	// Mid level change, wait for the new level.

@@ -3763,6 +3763,10 @@ void DoEnding()
 
 	music_stop();
 
+	// /killall killed Diablo: no movies.
+	if (KillAllSkipsEnding())
+		return;
+
 	if (gbIsMultiplayer) {
 		SDL_Delay(1000);
 	}
