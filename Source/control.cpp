@@ -535,14 +535,13 @@ std::string TextCmdLevelSeed(const string_view parameter)
 
 /**
  * What /pos marked on the automap: a fixed tile, or a monster or object it follows, shown on its level, with the way
- * there marked elsewhere. Or another player, for the way to their level only: their automap arrow does the rest.
+ * there marked elsewhere. Or just a level, for the way there.
  */
 struct PositionMarker {
 	enum class Kind : uint8_t {
 		Tile,
 		Monster,
 		Object,
-		Player,
 		Level,
 	};
 	Kind kind;
@@ -550,79 +549,12 @@ struct PositionMarker {
 	Point tile;
 	uint8_t level;
 	bool isSetLevel;
-	/** For a player: who, found again by name, so the way to them comes back if they leave and rejoin. */
-	std::string playerName = {};
 };
 
 std::optional<PositionMarker> Marker;
 
-/** Level for a marked player who isn't in the game right now: never the level you're on, and no way to it. */
-constexpr uint8_t AbsentPlayerLevel = 0xFF;
-
-/** The other player with that name (any case), if they're in the game. */
-std::optional<size_t> FindPlayerByName(string_view name)
-{
-	const std::string wanted = AsciiStrToLower(name);
-	for (size_t id = 0; id < Players.size(); id++) {
-		if (Players[id].plractive && &Players[id] != MyPlayer && AsciiStrToLower(Players[id]._pName) == wanted)
-			return id;
-	}
-	return std::nullopt;
-}
-
-/**
- * The unique monsters (and Diablo, who isn't one) on this level whose name starts with the text, or failing that has
- * it in it, any case: "laz", "diablo". Not other monsters: their names come in packs.
- */
-std::vector<int> FindUniqueMonstersMatching(string_view text)
-{
-	const std::string wanted = AsciiStrToLower(text);
-	std::vector<int> starting;
-	std::vector<int> containing;
-	for (size_t i = 0; i < ActiveMonsterCount; i++) {
-		const Monster &monster = Monsters[ActiveMonsters[i]];
-		if ((!monster.isUnique() && monster.type().type != MT_DIABLO) || monster.hitPoints <= 0)
-			continue;
-		const std::string name = AsciiStrToLower(monster.name());
-		if (name.rfind(wanted, 0) == 0)
-			starting.push_back(ActiveMonsters[i]);
-		else if (name.find(wanted) != std::string::npos)
-			containing.push_back(ActiveMonsters[i]);
-	}
-	return !starting.empty() ? starting : containing;
-}
-
-/**
- * The other players a typed name means, so names with characters that can't be typed can still be given: an exact
- * name (any case), else those whose name starts with it, else those whose name contains it.
- */
-std::vector<size_t> FindPlayersMatching(string_view text)
-{
-	if (const std::optional<size_t> exact = FindPlayerByName(text))
-		return { *exact };
-	const std::string wanted = AsciiStrToLower(text);
-	std::vector<size_t> starting;
-	std::vector<size_t> containing;
-	for (size_t id = 0; id < Players.size(); id++) {
-		if (!Players[id].plractive || &Players[id] == MyPlayer)
-			continue;
-		const std::string name = AsciiStrToLower(Players[id]._pName);
-		if (name.rfind(wanted, 0) == 0)
-			starting.push_back(id);
-		else if (name.find(wanted) != std::string::npos)
-			containing.push_back(id);
-	}
-	return !starting.empty() ? starting : containing;
-}
-
 bool IsMarkerOnThisLevel()
 {
-	if (Marker && Marker->kind == PositionMarker::Kind::Player) {
-		// A player moves between levels; follow them by name.
-		const std::optional<size_t> id = FindPlayerByName(Marker->playerName);
-		Marker->level = id ? Players[*id].plrlevel : AbsentPlayerLevel;
-		Marker->isSetLevel = id && Players[*id].plrIsOnSetLevel;
-	}
 	return Marker && Marker->level == currlevel && Marker->isSetLevel == setlevel;
 }
 
@@ -651,38 +583,8 @@ bool IsActiveObject(int index)
 }
 
 /** Reads "m59", "o62" or "68,76" (spaces and "(68, 76)" work too) as a marker on the given level. */
-/**
- * Bosses whose monster number is the same in every game, their levels' maps being fixed (LoadDiabMonsts, the lair's
- * map), so they can be marked by name from anywhere: "16:diablo", "s5:laz". Found by the seed search.
- */
-struct FixedBoss {
-	uint8_t level;
-	bool isSetLevel;
-	int index;
-	const char *names[2];
-};
-constexpr FixedBoss FixedBosses[] = {
-	{ 16, false, 52, { "diablo", "the dark lord" } },
-	{ 5, true, 40, { "lazarus", "arch-bishop lazarus" } },
-	{ 5, true, 41, { "red vex", nullptr } },
-	{ 5, true, 42, { "black jade", nullptr } },
-};
-
 std::optional<PositionMarker> ParseMarkerTarget(string_view target, uint8_t level, bool isSetLevel)
 {
-	// A fixed boss by its name, or the start of it.
-	const std::string wanted = AsciiStrToLower(target);
-	if (wanted.size() >= 2) {
-		for (const FixedBoss &boss : FixedBosses) {
-			if (boss.level != level || boss.isSetLevel != isSetLevel)
-				continue;
-			for (const char *name : boss.names) {
-				if (name != nullptr && string_view(name).substr(0, wanted.size()) == wanted)
-					return PositionMarker { PositionMarker::Kind::Monster, boss.index, {}, level, isSetLevel };
-			}
-		}
-	}
-
 	std::string text(target);
 	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
 	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, level, isSetLevel };
@@ -732,7 +634,7 @@ std::string TextCmdPos(const string_view parameter)
 		Marker = std::nullopt;
 		return std::string(_("Automap marker cleared."));
 	}
-	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>, /pos <level>:<target>, /pos <player name>, /pos <unique monster name> or /pos off."));
+	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>, /pos <level>:<target> or /pos off."));
 	// Just a level, as seed codes write it: "/pos 16", "/pos s5". The automap shows the way there.
 	uint8_t level;
 	bool isSetLevel;
@@ -760,35 +662,8 @@ std::string TextCmdPos(const string_view parameter)
 		return fmt::format(fmt::runtime(_("Marked {:s} on {:s}. The automap shows the way there.")), target, MarkerLevelName(Marker->level, Marker->isSetLevel));
 	}
 	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
-	if (!marker) {
-		// Another player, by name or part of it: the automap shows the way to whatever level they're on.
-		const std::vector<size_t> matches = FindPlayersMatching(parameter);
-		if (matches.empty()) {
-			// Or a unique monster on this level, by name or part of it.
-			const std::vector<int> monsters = FindUniqueMonstersMatching(parameter);
-			if (monsters.empty())
-				return usage;
-			if (monsters.size() > 1) {
-				std::string names;
-				for (int id : monsters)
-					names += (names.empty() ? "" : ", ") + std::string(Monsters[id].name());
-				return fmt::format(fmt::runtime(_("\"{:s}\" could be {:s}. Type more of the name.")), parameter, names);
-			}
-			Marker = ParseMarkerTarget(fmt::format("m{:d}", monsters[0]), currlevel, setlevel);
-			return GetAutomapMarkerText();
-		}
-		if (matches.size() > 1) {
-			std::string names;
-			for (size_t id : matches)
-				names += (names.empty() ? "" : ", ") + std::string(Players[id]._pName);
-			return fmt::format(fmt::runtime(_("\"{:s}\" could be {:s}. Type more of the name.")), parameter, names);
-		}
-		const Player &player = Players[matches[0]];
-		Marker = PositionMarker { PositionMarker::Kind::Player, -1, {}, player.plrlevel, player.plrIsOnSetLevel, player._pName };
-		if (IsMarkerOnThisLevel())
-			return fmt::format(fmt::runtime(_("{:s} is on your level.")), player._pName);
-		return fmt::format(fmt::runtime(_("{:s} is on {:s}. The automap shows the way there.")), player._pName, MarkerLevelName(player.plrlevel, player.plrIsOnSetLevel));
-	}
+	if (!marker)
+		return usage;
 	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index))
 		return fmt::format(fmt::runtime(_("There is no m{:d} on this level.")), marker->index);
 	if (marker->kind == PositionMarker::Kind::Object && !IsActiveObject(marker->index))
@@ -803,7 +678,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level> | <level>:<target> | <player name> | <unique monster name> | off]"), &TextCmdPos },
+	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a level."), N_("[<x>,<y> | m<number> | o<number> | <level> | <level>:<target> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -941,7 +816,7 @@ bool SetAutomapMarkerFromCode(string_view levelAndTarget)
 std::vector<AutomapWaypoint> GetAutomapWaypoints()
 {
 	std::vector<AutomapWaypoint> waypoints;
-	if (!Marker || IsMarkerOnThisLevel() || Marker->level == AbsentPlayerLevel)
+	if (!Marker || IsMarkerOnThisLevel())
 		return waypoints;
 
 	// A marked quest level is reached through its entrance on a dungeon level; head for that level first.
@@ -1094,7 +969,7 @@ void ClearAutomapMarker()
 
 void AnnounceAutomapMarker()
 {
-	if (IsMarkerOnThisLevel() && Marker->kind != PositionMarker::Kind::Player && Marker->kind != PositionMarker::Kind::Level)
+	if (IsMarkerOnThisLevel() && Marker->kind != PositionMarker::Kind::Level)
 		EventPlrMsg(GetAutomapMarkerText());
 }
 
@@ -1120,7 +995,6 @@ std::optional<Point> GetAutomapMarkerTile()
 		if (!IsActiveObject(Marker->index))
 			return std::nullopt;
 		return Objects[Marker->index].position;
-	case PositionMarker::Kind::Player:
 	case PositionMarker::Kind::Level:
 		return std::nullopt;
 	default:
@@ -1149,7 +1023,6 @@ std::string GetAutomapMarkerText()
 			return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}, already opened")), Marker->index, object.position.x, object.position.y);
 		return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}")), Marker->index, object.position.x, object.position.y);
 	}
-	case PositionMarker::Kind::Player:
 	case PositionMarker::Kind::Level:
 		return "";
 	default:
