@@ -2064,6 +2064,10 @@ bool UseInvItem(int cii)
 
 	UseItem(player.getId(), item->_iMiscId, item->_iSpell, cii);
 
+	// Elixirs are never used up.
+	if (IsAnyOf(item->_iMiscId, IMISC_ELIXSTR, IMISC_ELIXMAG, IMISC_ELIXDEX, IMISC_ELIXVIT))
+		return true;
+
 	if (speedlist) {
 		if (player.SpdList[c]._iMiscId == IMISC_NOTE) {
 			InitQTextMsg(TEXT_BOOK9);
