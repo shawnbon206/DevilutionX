@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 #include <fmt/format.h>
@@ -552,10 +553,10 @@ void ForgetClearedInOtherGames()
 	Cleared.gameSeed = sgGameInitInfo.dwSeed;
 }
 
-/** The first dungeon level from this one to 16 that /killall hasn't cleared (Diablo still alive on 16 with -d), or 0. */
-int NextLevelToClear(int from, bool killDiablo)
+/** The first dungeon level from one to another that /killall hasn't cleared (Diablo still alive on 16 with -d), or 0. */
+int NextLevelToClear(int from, int to, bool killDiablo)
 {
-	for (int level = from; level <= 16; level++) {
+	for (int level = from; level <= to; level++) {
 		if (!Cleared.levels[level] || (level == 16 && killDiablo && !Cleared.diablo))
 			return level;
 	}
@@ -590,49 +591,66 @@ size_t KillAllOnLevel(bool killDiablo)
 struct {
 	bool active = false;
 	int nextLevel = 0;
+	int lastLevel = 16;
 	bool killDiablo = false;
 	int levels = 0;
 	size_t killed = 0;
 } Sweep;
 
 /**
- * Test: /killall kills every monster on this level; with -a it goes down through dungeon levels 1 to 16 clearing each
- * it hasn't already cleared in this game, through the game's own level changes, and leaves you on the last; -d kills
- * Diablo too. Options in any order. Single player and offline games only: elsewhere it would take the other players'
+ * Test: /killall kills every monster on this level; with a range ("9-16", or "12" for one level), or -a for 1-16, it
+ * goes through those dungeon levels clearing each it hasn't already cleared in this game, through the game's own level
+ * changes, and leaves you on the last; -d kills Diablo too. Options in any order. Single player and offline games only: elsewhere it would take the other players'
  * monsters.
  */
 std::string TextCmdKillAll(const string_view parameter)
 {
 	if (gbIsMultiplayer && !IsLoopback)
 		return std::string(_("/killall only works in single player and offline games."));
-	bool all = false;
+	const std::string usage(_("Use /killall for this level, /killall 9-16 (or 12) for those levels, or /killall -a for 1-16; add -d to kill Diablo too."));
+	int first = 0;
+	int last = 0;
 	bool killDiablo = false;
 	string_view rest = parameter;
 	while (!rest.empty()) {
 		const size_t space = rest.find(' ');
 		const string_view word = rest.substr(0, space);
-		if (word == "-a")
-			all = true;
-		else if (word == "-d")
+		int from = 0;
+		int to = 0;
+		char extra = 0;
+		const std::string text(word);
+		if (word == "-a") {
+			first = 1;
+			last = 16;
+		} else if (word == "-d") {
 			killDiablo = true;
-		else if (!word.empty())
-			return std::string(_("Use /killall for this level or /killall -a for levels 1 to 16; add -d to kill Diablo too."));
+		} else if (std::sscanf(text.c_str(), "%d-%d%c", &from, &to, &extra) == 2 && 1 <= from && from <= to && to <= 16) {
+			first = from;
+			last = to;
+		} else if (std::sscanf(text.c_str(), "%d%c", &from, &extra) == 1 && 1 <= from && from <= 16) {
+			first = from;
+			last = from;
+		} else if (!word.empty()) {
+			return usage;
+		}
 		rest = space == string_view::npos ? string_view {} : rest.substr(space + 1);
 	}
-	if (!all) {
+	if (first == 0) {
 		const size_t killed = KillAllOnLevel(killDiablo);
 		return fmt::format(fmt::runtime(ngettext("Killed {:d} monster.", "Killed {:d} monsters.", killed)), killed);
 	}
 	ForgetClearedInOtherGames();
-	const int first = NextLevelToClear(1, killDiablo);
-	if (first == 0)
-		return std::string(_("Levels 1 to 16 are already cleared."));
+	const int next = NextLevelToClear(first, last, killDiablo);
+	if (next == 0)
+		return first == last ? fmt::format(fmt::runtime(_("Level {:d} is already cleared.")), first)
+		                     : fmt::format(fmt::runtime(_("Levels {:d} to {:d} are already cleared.")), first, last);
 	Sweep.active = true;
-	Sweep.nextLevel = first;
+	Sweep.nextLevel = next;
+	Sweep.lastLevel = last;
 	Sweep.killDiablo = killDiablo;
 	Sweep.levels = 0;
 	Sweep.killed = 0;
-	return fmt::format(fmt::runtime(_("Clearing the dungeon levels not yet cleared, from level {:d}.")), first);
+	return fmt::format(fmt::runtime(_("Clearing the levels not yet cleared, from level {:d} to {:d}.")), next, last);
 }
 
 std::vector<TextCmdItem> TextCmdList = {
@@ -641,7 +659,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/killall"), N_("Kills every monster on your level, or with -a on levels 1 to 16, but Diablo unless -d (single player and offline games only)."), N_("[-a] [-d]"), &TextCmdKillAll },
+	{ N_("/killall"), N_("Kills every monster on your level, or on a range of levels (9-16, or -a for 1-16), but Diablo unless -d (single player and offline games only)."), N_("[<level> | <from>-<to> | -a] [-d]"), &TextCmdKillAll },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -773,7 +791,7 @@ void UpdateKillAllSweep()
 	}
 	Sweep.killed += KillAllOnLevel(Sweep.killDiablo);
 	Sweep.levels++;
-	Sweep.nextLevel = NextLevelToClear(currlevel + 1, Sweep.killDiablo);
+	Sweep.nextLevel = NextLevelToClear(currlevel + 1, Sweep.lastLevel, Sweep.killDiablo);
 	if (Sweep.nextLevel == 0) {
 		Sweep.active = false;
 		EventPlrMsg(fmt::format(fmt::runtime(_("Cleared {:d} levels: {:d} monsters killed.")), Sweep.levels, Sweep.killed));
