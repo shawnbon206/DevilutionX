@@ -687,11 +687,12 @@ void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, P
 	const Point top { screen.x, screen.y - AmLine(4) };
 	const Point bottom { screen.x, screen.y + AmLine(4) };
 	if (errand) {
-		// Steep legs, twice as tall as wide, so it reads as an A; the map's own diagonals made it flat.
-		const int leg = AmLine(4);
+		// Steep legs, twice as tall as wide, so it reads as an A (the map's own diagonals made it flat), big enough that
+		// the space above the crossbar shows. The crossbar is 5/8 of the way down, where the legs are 5/8 of a leg out.
+		const int leg = AmLine(8);
 		DrawMapLineSteepNE(out, { screen.x - leg, screen.y + leg }, leg, color);
 		DrawMapLineSteepSE(out, { screen.x, screen.y - leg }, leg, color);
-		DrawHorizontalLine(out, { screen.x - leg / 2, screen.y + leg / 4 }, leg + 1, color);
+		DrawHorizontalLine(out, { screen.x - 5 * leg / 8, screen.y + leg / 4 }, 5 * leg / 4 + 1, color);
 		return;
 	}
 	DrawMapLineNE(out, left, AmLine(4), color);
