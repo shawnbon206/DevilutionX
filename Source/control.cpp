@@ -950,6 +950,10 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 					waypoints.push_back({ { i, j } });
 			}
 		}
+		// Until then the errand is the staff, and once Cain has it and the portal is open (_qvar1 >= 3), Lazarus.
+		const Quest &betrayer = Quests[Q_BETRAYER];
+		if (betrayer._qactive != QUEST_DONE && betrayer._qvar1 >= 3)
+			waypoints.push_back({ betrayer.position, true });
 		addLazarusStaff();
 		return waypoints;
 	}

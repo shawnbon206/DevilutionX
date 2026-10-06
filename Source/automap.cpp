@@ -661,7 +661,7 @@ uint8_t ClosestPaletteColor(SDL_Color color)
 
 /**
  * @brief Renders the /pos marker and its waypoints: a small white diamond, or for an errand on the way (the Staff of
- * Lazarus) an A, the diamond's top half with a crossbar, like the staff's stand seen from the side. White because
+ * Lazarus, then Lazarus' portal) an A. White because
  * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green. A marked monster is
  * passed with how far into its step it is, as player arrows are, so the diamond glides with it.
  */
@@ -687,9 +687,11 @@ void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, P
 	const Point top { screen.x, screen.y - AmLine(4) };
 	const Point bottom { screen.x, screen.y + AmLine(4) };
 	if (errand) {
-		DrawMapLineNE(out, left, AmLine(4), color);
-		DrawMapLineSE(out, top, AmLine(4), color);
-		DrawHorizontalLine(out, { screen.x - AmLine(4), screen.y - AmLine(2) }, 2 * AmLine(4) + 1, color);
+		// Steep legs, twice as tall as wide, so it reads as an A; the map's own diagonals made it flat.
+		const int leg = AmLine(4);
+		DrawMapLineSteepNE(out, { screen.x - leg, screen.y + leg }, leg, color);
+		DrawMapLineSteepSE(out, { screen.x, screen.y - leg }, leg, color);
+		DrawHorizontalLine(out, { screen.x - leg / 2, screen.y + leg / 4 }, leg + 1, color);
 		return;
 	}
 	DrawMapLineNE(out, left, AmLine(4), color);
