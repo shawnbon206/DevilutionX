@@ -650,8 +650,38 @@ bool IsActiveObject(int index)
 }
 
 /** Reads "m59", "o62" or "68,76" (spaces and "(68, 76)" work too) as a marker on the given level. */
+/**
+ * Bosses whose monster number is the same in every game, their levels' maps being fixed (LoadDiabMonsts, the lair's
+ * map), so they can be marked by name from anywhere: "16:diablo", "s5:laz". Found by the seed search.
+ */
+struct FixedBoss {
+	uint8_t level;
+	bool isSetLevel;
+	int index;
+	const char *names[2];
+};
+constexpr FixedBoss FixedBosses[] = {
+	{ 16, false, 52, { "diablo", "the dark lord" } },
+	{ 5, true, 40, { "lazarus", "arch-bishop lazarus" } },
+	{ 5, true, 41, { "red vex", nullptr } },
+	{ 5, true, 42, { "black jade", nullptr } },
+};
+
 std::optional<PositionMarker> ParseMarkerTarget(string_view target, uint8_t level, bool isSetLevel)
 {
+	// A fixed boss by its name, or the start of it.
+	const std::string wanted = AsciiStrToLower(target);
+	if (wanted.size() >= 2) {
+		for (const FixedBoss &boss : FixedBosses) {
+			if (boss.level != level || boss.isSetLevel != isSetLevel)
+				continue;
+			for (const char *name : boss.names) {
+				if (name != nullptr && string_view(name).substr(0, wanted.size()) == wanted)
+					return PositionMarker { PositionMarker::Kind::Monster, boss.index, {}, level, isSetLevel };
+			}
+		}
+	}
+
 	std::string text(target);
 	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
 	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, level, isSetLevel };
