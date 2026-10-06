@@ -1436,6 +1436,7 @@ void GameLogic()
 	sound_update();
 	CheckTriggers();
 	CheckQuests();
+	UpdateKillAllSweep();
 	RedrawViewport();
 	pfile_update(false);
 

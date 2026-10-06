@@ -44,6 +44,7 @@
 #include "panels/spell_icons.hpp"
 #include "panels/spell_list.hpp"
 #include "playerdat.hpp"
+#include "plrmsg.h"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
 #include "stores.h"
@@ -532,18 +533,11 @@ std::string TextCmdLevelSeed(const string_view parameter)
 }
 
 /**
- * Test: kills every monster on the level, each as if by you (experience, loot, quests), but golems, and Diablo unless
- * -d is given, as his death ends the game. Single player and offline games only: elsewhere it would take the other
- * players' monsters.
+ * Test: kills every monster on this level, each as if by you (experience, loot, quests), but golems, and Diablo unless
+ * told to, as his death ends the game; how many.
  */
-std::string TextCmdKillAll(const string_view parameter)
+size_t KillAllOnLevel(bool killDiablo)
 {
-	if (gbIsMultiplayer && !IsLoopback)
-		return std::string(_("/killall only works in single player and offline games."));
-	if (!parameter.empty() && parameter != "-d")
-		return std::string(_("Use /killall, or /killall -d to kill Diablo too."));
-	const bool killDiablo = parameter == "-d";
-
 	std::vector<int> targets;
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const Monster &monster = Monsters[ActiveMonsters[i]];
@@ -557,7 +551,49 @@ std::string TextCmdKillAll(const string_view parameter)
 		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
 		M_StartKill(monster, *MyPlayer);
 	}
-	return fmt::format(fmt::runtime(ngettext("Killed {:d} monster.", "Killed {:d} monsters.", targets.size())), targets.size());
+	return targets.size();
+}
+
+/** /killall -a: the dungeon level to clear next, 1 to 16, whether Diablo goes too, and the monsters killed so far. */
+struct {
+	bool active = false;
+	int nextLevel = 0;
+	bool killDiablo = false;
+	size_t killed = 0;
+} Sweep;
+
+/**
+ * Test: /killall kills every monster on this level; with -a it goes down through dungeon levels 1 to 16 clearing
+ * each, through the game's own level changes, and leaves you on 16; -d kills Diablo too. Options in any order. Single player and offline
+ * games only: elsewhere it would take the other players' monsters.
+ */
+std::string TextCmdKillAll(const string_view parameter)
+{
+	if (gbIsMultiplayer && !IsLoopback)
+		return std::string(_("/killall only works in single player and offline games."));
+	bool all = false;
+	bool killDiablo = false;
+	string_view rest = parameter;
+	while (!rest.empty()) {
+		const size_t space = rest.find(' ');
+		const string_view word = rest.substr(0, space);
+		if (word == "-a")
+			all = true;
+		else if (word == "-d")
+			killDiablo = true;
+		else if (!word.empty())
+			return std::string(_("Use /killall for this level or /killall -a for levels 1 to 16; add -d to kill Diablo too."));
+		rest = space == string_view::npos ? string_view {} : rest.substr(space + 1);
+	}
+	if (!all) {
+		const size_t killed = KillAllOnLevel(killDiablo);
+		return fmt::format(fmt::runtime(ngettext("Killed {:d} monster.", "Killed {:d} monsters.", killed)), killed);
+	}
+	Sweep.active = true;
+	Sweep.nextLevel = 1;
+	Sweep.killDiablo = killDiablo;
+	Sweep.killed = 0;
+	return std::string(_("Clearing dungeon levels 1 to 16; you'll end on level 16."));
 }
 
 std::vector<TextCmdItem> TextCmdList = {
@@ -566,8 +602,30 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/killall"), N_("Kills every monster on your level but Diablo, or him too with -d (single player and offline games only)."), N_("[-d]"), &TextCmdKillAll },
+	{ N_("/killall"), N_("Kills every monster on your level, or with -a on levels 1 to 16, but Diablo unless -d (single player and offline games only)."), N_("[-a] [-d]"), &TextCmdKillAll },
 };
+
+void UpdateKillAllSweep()
+{
+	if (!Sweep.active || MyPlayer == nullptr)
+		return;
+	Player &player = *MyPlayer;
+	// Mid level change, wait for the new level.
+	if (player._pmode == PM_NEWLVL)
+		return;
+	if (setlevel || currlevel != Sweep.nextLevel) {
+		StartNewLvl(player, WM_DIABNEXTLVL, Sweep.nextLevel);
+		return;
+	}
+	Sweep.killed += KillAllOnLevel(Sweep.killDiablo);
+	if (Sweep.nextLevel == 16) {
+		Sweep.active = false;
+		EventPlrMsg(fmt::format(fmt::runtime(ngettext("Cleared levels 1 to 16: {:d} monster killed.", "Cleared levels 1 to 16: {:d} monsters killed.", Sweep.killed)), Sweep.killed));
+		return;
+	}
+	Sweep.nextLevel++;
+	StartNewLvl(player, WM_DIABNEXTLVL, Sweep.nextLevel);
+}
 
 bool CheckTextCommand(const string_view text)
 {
