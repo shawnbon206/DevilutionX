@@ -34,6 +34,8 @@
 #include "lighting.h"
 #include "minitext.h"
 #include "missiles.h"
+#include "monster.h"
+#include "multi.h"
 #include "options.h"
 #include "panels/charpanel.hpp"
 #include "panels/mainpanel.hpp"
@@ -528,12 +530,33 @@ std::string TextCmdLevelSeed(const string_view parameter)
 	    "Storybook: ", glSeedTbl[16]);
 }
 
+/**
+ * Test: kills every monster on the level, each as if by you (experience, loot, quests), golems aside. Single player and
+ * offline games only: elsewhere it would take the other players' monsters.
+ */
+std::string TextCmdKillAll(const string_view /*parameter*/)
+{
+	if (gbIsMultiplayer && !IsLoopback)
+		return std::string(_("/killall only works in single player and offline games."));
+
+	std::vector<int> targets;
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		if (monster.hitPoints > 0 && monster.mode != MonsterMode::Death && !monster.isPlayerMinion())
+			targets.push_back(ActiveMonsters[i]);
+	}
+	for (const int id : targets)
+		M_StartKill(Monsters[id], *MyPlayer);
+	return fmt::format(fmt::runtime(ngettext("Killed {:d} monster.", "Killed {:d} monsters.", targets.size())), targets.size());
+}
+
 std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/help"), N_("Prints help overview or help for a specific command."), N_("[command]"), &TextCmdHelp },
 	{ N_("/arena"), N_("Enter a PvP Arena."), N_("<arena-number>"), &TextCmdArena },
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
+	{ N_("/killall"), N_("Kills every monster on your level (single player and offline games only)."), "", &TextCmdKillAll },
 };
 
 bool CheckTextCommand(const string_view text)
