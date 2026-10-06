@@ -851,11 +851,11 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 		for (int i = 0; i < ActiveObjectCount; i++) {
 			const Object &object = Objects[ActiveObjects[i]];
 			if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
-				waypoints.push_back({ object.position, true });
+				waypoints.push_back({ object.position });
 		}
 		for (uint8_t i = 0; i < ActiveItemCount; i++) {
 			if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
-				waypoints.push_back({ Items[ActiveItems[i]].position, true });
+				waypoints.push_back({ Items[ActiveItems[i]].position });
 		}
 	};
 
@@ -878,7 +878,7 @@ std::vector<AutomapWaypoint> GetAutomapWaypoints()
 		// Until then the errand is the staff, and once Cain has it and the portal is open (_qvar1 >= 3), Lazarus.
 		const Quest &betrayer = Quests[Q_BETRAYER];
 		if (betrayer._qactive != QUEST_DONE && betrayer._qvar1 >= 3)
-			waypoints.push_back({ betrayer.position, true });
+			waypoints.push_back({ betrayer.position });
 		addLazarusStaff();
 		return waypoints;
 	}

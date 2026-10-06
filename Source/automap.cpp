@@ -660,12 +660,11 @@ uint8_t ClosestPaletteColor(SDL_Color color)
 }
 
 /**
- * @brief Renders the /pos marker and its waypoints: a small white diamond, or for an errand on the way (the Staff of
- * Lazarus, then Lazarus' portal) an A. White because
+ * @brief Renders the /pos marker and its waypoints: a small white diamond. White because
  * the automap already uses yellow, orange, blue and red, and Diablo's palettes have no green. A marked monster is
  * passed with how far into its step it is, as player arrows are, so the diamond glides with it.
  */
-void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile, bool errand = false, Displacement walking = {})
+void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, Point tile, Displacement walking = {})
 {
 	const int px = tile.x - 2 * AutomapOffset.deltaX - ViewPosition.x;
 	const int py = tile.y - 2 * AutomapOffset.deltaY - ViewPosition.y;
@@ -686,15 +685,6 @@ void DrawAutomapMarker(const Surface &out, const Displacement &myPlayerOffset, P
 	const Point left { screen.x - AmLine(8), screen.y };
 	const Point top { screen.x, screen.y - AmLine(4) };
 	const Point bottom { screen.x, screen.y + AmLine(4) };
-	if (errand) {
-		// Steep legs, twice as tall as wide, so it reads as an A (the map's own diagonals made it flat), big enough that
-		// the space above the crossbar shows. The crossbar is 5/8 of the way down, where the legs are 5/8 of a leg out.
-		const int leg = AmLine(8);
-		DrawMapLineSteepNE(out, { screen.x - leg, screen.y + leg }, leg, color);
-		DrawMapLineSteepSE(out, { screen.x, screen.y - leg }, leg, color);
-		DrawHorizontalLine(out, { screen.x - 5 * leg / 8, screen.y + leg / 4 }, 5 * leg / 4 + 1, color);
-		return;
-	}
 	DrawMapLineNE(out, left, AmLine(4), color);
 	DrawMapLineSE(out, left, AmLine(4), color);
 	DrawMapLineSE(out, top, AmLine(4), color);
@@ -1051,12 +1041,12 @@ void DrawAutomap(const Surface &out)
 		const Monster &monster = Monsters[*markedMonster];
 		const Point tile = monster.mode == MonsterMode::MoveSideways ? monster.position.future : monster.position.tile;
 		const Displacement walking = monster.isWalking() ? GetOffsetForWalking(monster.animInfo, monster.direction) : Displacement {};
-		DrawAutomapMarker(out, myPlayerOffset, tile, false, walking);
+		DrawAutomapMarker(out, myPlayerOffset, tile, walking);
 	} else if (std::optional<Point> marked = GetAutomapMarkerTile()) {
 		DrawAutomapMarker(out, myPlayerOffset, *marked);
 	}
 	for (const AutomapWaypoint &waypoint : GetAutomapWaypoints())
-		DrawAutomapMarker(out, myPlayerOffset, waypoint.tile, waypoint.errand);
+		DrawAutomapMarker(out, myPlayerOffset, waypoint.tile);
 	if (AutoMapShowItems)
 		SearchAutomapItem(out, myPlayerOffset, 8, [](Point position) { return dItem[position.x][position.y] != 0; });
 #ifdef _DEBUG

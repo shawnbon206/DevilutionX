@@ -161,8 +161,6 @@ std::optional<Point> GetAutomapMarkerTile();
  */
 struct AutomapWaypoint {
 	Point tile;
-	/** Something to pick up on the way rather than a way forward (the Staff of Lazarus), drawn differently. */
-	bool errand = false;
 };
 std::vector<AutomapWaypoint> GetAutomapWaypoints();
 
