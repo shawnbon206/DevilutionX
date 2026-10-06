@@ -32,6 +32,7 @@
 #include "loadsave.h"
 #include "minitext.h"
 #include "missiles.h"
+#include "multi.h"
 #include "nthread.h"
 #include "objects.h"
 #include "options.h"
@@ -2450,8 +2451,8 @@ void AddPlrExperience(Player &player, int lvl, int exp)
 	// Adjust xp based on difference in level between player and monster
 	uint32_t clampedExp = std::max(static_cast<int>(exp * (1 + (lvl - player._pLevel) / 10.0)), 0);
 
-	// Prevent power leveling
-	if (gbIsMultiplayer) {
+	// Prevent power leveling. Test (killall branch): not in offline games, which have no one else to level past.
+	if (gbIsMultiplayer && !IsLoopback) {
 		const uint32_t clampedPlayerLevel = clamp(static_cast<int>(player._pLevel), 1, MaxCharacterLevel);
 
 		// for low level characters experience gain is capped to 1/20 of current levels xp
