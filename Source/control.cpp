@@ -543,6 +543,7 @@ struct PositionMarker {
 		Monster,
 		Object,
 		Player,
+		Level,
 	};
 	Kind kind;
 	int index;
@@ -570,10 +571,6 @@ std::optional<size_t> FindPlayerByName(string_view name)
 }
 
 /**
- * The other players a typed name means, so names with characters that can't be typed can still be given: an exact
- * name (any case), else those whose name starts with it, else those whose name contains it.
- */
-/**
  * The unique monsters (and Diablo, who isn't one) on this level whose name starts with the text, or failing that has
  * it in it, any case: "laz", "diablo". Not other monsters: their names come in packs.
  */
@@ -595,6 +592,10 @@ std::vector<int> FindUniqueMonstersMatching(string_view text)
 	return !starting.empty() ? starting : containing;
 }
 
+/**
+ * The other players a typed name means, so names with characters that can't be typed can still be given: an exact
+ * name (any case), else those whose name starts with it, else those whose name contains it.
+ */
 std::vector<size_t> FindPlayersMatching(string_view text)
 {
 	if (const std::optional<size_t> exact = FindPlayerByName(text))
@@ -703,6 +704,24 @@ std::optional<PositionMarker> ParseMarkerTarget(string_view target, uint8_t leve
 	return std::nullopt;
 }
 
+/** A level as seed codes write it: "16" for dungeon level 16, "s5" for set level 5 (Lazarus' Lair). */
+bool ParseMarkerLevel(string_view levelText, uint8_t &level, bool &isSetLevel)
+{
+	isSetLevel = !levelText.empty() && levelText[0] == 's';
+	if (isSetLevel)
+		levelText.remove_prefix(1);
+	int number = 0;
+	for (char c : levelText) {
+		if (c < '0' || c > '9' || number > 100)
+			return false;
+		number = number * 10 + (c - '0');
+	}
+	if (levelText.empty() || number < 1 || number >= NUMLEVELS)
+		return false;
+	level = static_cast<uint8_t>(number);
+	return true;
+}
+
 std::string TextCmdPos(const string_view parameter)
 {
 	if (parameter.empty()) {
@@ -713,7 +732,16 @@ std::string TextCmdPos(const string_view parameter)
 		Marker = std::nullopt;
 		return std::string(_("Automap marker cleared."));
 	}
-	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>:<target>, /pos <player name>, /pos <unique monster name> or /pos off."));
+	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>, /pos <level>:<target>, /pos <player name>, /pos <unique monster name> or /pos off."));
+	// Just a level, as seed codes write it: "/pos 16", "/pos s5". The automap shows the way there.
+	uint8_t level;
+	bool isSetLevel;
+	if (ParseMarkerLevel(parameter, level, isSetLevel)) {
+		Marker = PositionMarker { PositionMarker::Kind::Level, -1, {}, level, isSetLevel };
+		if (IsMarkerOnThisLevel())
+			return fmt::format(fmt::runtime(_("You're on {:s}.")), MarkerLevelName(level, isSetLevel));
+		return fmt::format(fmt::runtime(_("The automap shows the way to {:s}.")), MarkerLevelName(level, isSetLevel));
+	}
 	// A target on any level, written like the end of a seed code ("16:m59", "s5:m40", "9:68,76"), or a whole code.
 	if (parameter.find(':') != string_view::npos) {
 		string_view code = parameter;
@@ -775,7 +803,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | <player name> | <unique monster name> | off]"), &TextCmdPos },
+	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level> | <level>:<target> | <player name> | <unique monster name> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -899,19 +927,11 @@ bool SetAutomapMarkerFromCode(string_view levelAndTarget)
 	const size_t colon = levelAndTarget.find(':');
 	if (colon == string_view::npos || colon == 0)
 		return false;
-	string_view levelText = levelAndTarget.substr(0, colon);
-	const bool isSetLevel = levelText[0] == 's';
-	if (isSetLevel)
-		levelText.remove_prefix(1);
-	int level = 0;
-	for (char c : levelText) {
-		if (c < '0' || c > '9' || level > 100)
-			return false;
-		level = level * 10 + (c - '0');
-	}
-	if (levelText.empty() || level < 1 || level >= NUMLEVELS)
+	uint8_t level;
+	bool isSetLevel;
+	if (!ParseMarkerLevel(levelAndTarget.substr(0, colon), level, isSetLevel))
 		return false;
-	const std::optional<PositionMarker> marker = ParseMarkerTarget(levelAndTarget.substr(colon + 1), static_cast<uint8_t>(level), isSetLevel);
+	const std::optional<PositionMarker> marker = ParseMarkerTarget(levelAndTarget.substr(colon + 1), level, isSetLevel);
 	if (!marker)
 		return false;
 	Marker = marker;
@@ -1074,7 +1094,7 @@ void ClearAutomapMarker()
 
 void AnnounceAutomapMarker()
 {
-	if (IsMarkerOnThisLevel() && Marker->kind != PositionMarker::Kind::Player)
+	if (IsMarkerOnThisLevel() && Marker->kind != PositionMarker::Kind::Player && Marker->kind != PositionMarker::Kind::Level)
 		EventPlrMsg(GetAutomapMarkerText());
 }
 
@@ -1101,6 +1121,7 @@ std::optional<Point> GetAutomapMarkerTile()
 			return std::nullopt;
 		return Objects[Marker->index].position;
 	case PositionMarker::Kind::Player:
+	case PositionMarker::Kind::Level:
 		return std::nullopt;
 	default:
 		return Marker->tile;
@@ -1129,6 +1150,7 @@ std::string GetAutomapMarkerText()
 		return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}")), Marker->index, object.position.x, object.position.y);
 	}
 	case PositionMarker::Kind::Player:
+	case PositionMarker::Kind::Level:
 		return "";
 	default:
 		return fmt::format(fmt::runtime(_("Marked: {:d}, {:d}")), Marker->tile.x, Marker->tile.y);
