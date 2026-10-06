@@ -536,8 +536,35 @@ std::string TextCmdLevelSeed(const string_view parameter)
  * Test: kills every monster on this level, each as if by you (experience, loot, quests), but golems, and Diablo unless
  * told to, as his death ends the game; how many.
  */
+/** The dungeon levels /killall has cleared in this game (known by its seed), and whether Diablo is dead too. */
+struct {
+	uint32_t gameSeed = 0;
+	std::array<bool, 17> levels {};
+	bool diablo = false;
+} Cleared;
+
+/** Forgets what was cleared if it was in another game. */
+void ForgetClearedInOtherGames()
+{
+	if (Cleared.gameSeed == sgGameInitInfo.dwSeed)
+		return;
+	Cleared = {};
+	Cleared.gameSeed = sgGameInitInfo.dwSeed;
+}
+
+/** The first dungeon level from this one to 16 that /killall hasn't cleared (Diablo still alive on 16 with -d), or 0. */
+int NextLevelToClear(int from, bool killDiablo)
+{
+	for (int level = from; level <= 16; level++) {
+		if (!Cleared.levels[level] || (level == 16 && killDiablo && !Cleared.diablo))
+			return level;
+	}
+	return 0;
+}
+
 size_t KillAllOnLevel(bool killDiablo)
 {
+	ForgetClearedInOtherGames();
 	std::vector<int> targets;
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const Monster &monster = Monsters[ActiveMonsters[i]];
@@ -551,6 +578,11 @@ size_t KillAllOnLevel(bool killDiablo)
 		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
 		M_StartKill(monster, *MyPlayer);
 	}
+	if (!setlevel && currlevel >= 1 && currlevel <= 16) {
+		Cleared.levels[currlevel] = true;
+		if (currlevel == 16 && killDiablo)
+			Cleared.diablo = true;
+	}
 	return targets.size();
 }
 
@@ -559,13 +591,15 @@ struct {
 	bool active = false;
 	int nextLevel = 0;
 	bool killDiablo = false;
+	int levels = 0;
 	size_t killed = 0;
 } Sweep;
 
 /**
- * Test: /killall kills every monster on this level; with -a it goes down through dungeon levels 1 to 16 clearing
- * each, through the game's own level changes, and leaves you on 16; -d kills Diablo too. Options in any order. Single player and offline
- * games only: elsewhere it would take the other players' monsters.
+ * Test: /killall kills every monster on this level; with -a it goes down through dungeon levels 1 to 16 clearing each
+ * it hasn't already cleared in this game, through the game's own level changes, and leaves you on the last; -d kills
+ * Diablo too. Options in any order. Single player and offline games only: elsewhere it would take the other players'
+ * monsters.
  */
 std::string TextCmdKillAll(const string_view parameter)
 {
@@ -589,11 +623,16 @@ std::string TextCmdKillAll(const string_view parameter)
 		const size_t killed = KillAllOnLevel(killDiablo);
 		return fmt::format(fmt::runtime(ngettext("Killed {:d} monster.", "Killed {:d} monsters.", killed)), killed);
 	}
+	ForgetClearedInOtherGames();
+	const int first = NextLevelToClear(1, killDiablo);
+	if (first == 0)
+		return std::string(_("Levels 1 to 16 are already cleared."));
 	Sweep.active = true;
-	Sweep.nextLevel = 1;
+	Sweep.nextLevel = first;
 	Sweep.killDiablo = killDiablo;
+	Sweep.levels = 0;
 	Sweep.killed = 0;
-	return std::string(_("Clearing dungeon levels 1 to 16; you'll end on level 16."));
+	return fmt::format(fmt::runtime(_("Clearing the dungeon levels not yet cleared, from level {:d}.")), first);
 }
 
 std::vector<TextCmdItem> TextCmdList = {
@@ -733,12 +772,13 @@ void UpdateKillAllSweep()
 		return;
 	}
 	Sweep.killed += KillAllOnLevel(Sweep.killDiablo);
-	if (Sweep.nextLevel == 16) {
+	Sweep.levels++;
+	Sweep.nextLevel = NextLevelToClear(currlevel + 1, Sweep.killDiablo);
+	if (Sweep.nextLevel == 0) {
 		Sweep.active = false;
-		EventPlrMsg(fmt::format(fmt::runtime(ngettext("Cleared levels 1 to 16: {:d} monster killed.", "Cleared levels 1 to 16: {:d} monsters killed.", Sweep.killed)), Sweep.killed));
+		EventPlrMsg(fmt::format(fmt::runtime(_("Cleared {:d} levels: {:d} monsters killed.")), Sweep.levels, Sweep.killed));
 		return;
 	}
-	Sweep.nextLevel++;
 	StartNewLvl(player, WM_DIABNEXTLVL, Sweep.nextLevel);
 }
 
