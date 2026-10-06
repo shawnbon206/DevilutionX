@@ -35,6 +35,7 @@
 #include "minitext.h"
 #include "missiles.h"
 #include "monster.h"
+#include "msg.h"
 #include "multi.h"
 #include "options.h"
 #include "panels/charpanel.hpp"
@@ -545,8 +546,13 @@ std::string TextCmdKillAll(const string_view /*parameter*/)
 		if (monster.hitPoints > 0 && monster.mode != MonsterMode::Death && !monster.isPlayerMinion())
 			targets.push_back(ActiveMonsters[i]);
 	}
-	for (const int id : targets)
-		M_StartKill(Monsters[id], *MyPlayer);
+	for (const int id : targets) {
+		Monster &monster = Monsters[id];
+		// Recorded for the level as a killing blow is (ApplyMonsterDamage), so it stays dead when you come back. There
+		// are no other players to tell (CMD_MONSTDEATH).
+		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
+		M_StartKill(monster, *MyPlayer);
+	}
 	return fmt::format(fmt::runtime(ngettext("Killed {:d} monster.", "Killed {:d} monsters.", targets.size())), targets.size());
 }
 
