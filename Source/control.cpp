@@ -532,8 +532,8 @@ std::string TextCmdLevelSeed(const string_view parameter)
 }
 
 /**
- * Test: kills every monster on the level, each as if by you (experience, loot, quests), golems aside. Single player and
- * offline games only: elsewhere it would take the other players' monsters.
+ * Test: kills every monster on the level, each as if by you (experience, loot, quests), but golems and Diablo, whose
+ * death ends the game. Single player and offline games only: elsewhere it would take the other players' monsters.
  */
 std::string TextCmdKillAll(const string_view /*parameter*/)
 {
@@ -543,7 +543,7 @@ std::string TextCmdKillAll(const string_view /*parameter*/)
 	std::vector<int> targets;
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const Monster &monster = Monsters[ActiveMonsters[i]];
-		if (monster.hitPoints > 0 && monster.mode != MonsterMode::Death && !monster.isPlayerMinion())
+		if (monster.hitPoints > 0 && monster.mode != MonsterMode::Death && !monster.isPlayerMinion() && monster.type().type != MT_DIABLO)
 			targets.push_back(ActiveMonsters[i]);
 	}
 	for (const int id : targets) {
@@ -562,7 +562,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/killall"), N_("Kills every monster on your level (single player and offline games only)."), "", &TextCmdKillAll },
+	{ N_("/killall"), N_("Kills every monster on your level but Diablo (single player and offline games only)."), "", &TextCmdKillAll },
 };
 
 bool CheckTextCommand(const string_view text)
