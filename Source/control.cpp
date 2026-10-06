@@ -573,6 +573,28 @@ std::optional<size_t> FindPlayerByName(string_view name)
  * The other players a typed name means, so names with characters that can't be typed can still be given: an exact
  * name (any case), else those whose name starts with it, else those whose name contains it.
  */
+/**
+ * The unique monsters (and Diablo, who isn't one) on this level whose name starts with the text, or failing that has
+ * it in it, any case: "laz", "diablo". Not other monsters: their names come in packs.
+ */
+std::vector<int> FindUniqueMonstersMatching(string_view text)
+{
+	const std::string wanted = AsciiStrToLower(text);
+	std::vector<int> starting;
+	std::vector<int> containing;
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		if ((!monster.isUnique() && monster.type().type != MT_DIABLO) || monster.hitPoints <= 0)
+			continue;
+		const std::string name = AsciiStrToLower(monster.name());
+		if (name.rfind(wanted, 0) == 0)
+			starting.push_back(ActiveMonsters[i]);
+		else if (name.find(wanted) != std::string::npos)
+			containing.push_back(ActiveMonsters[i]);
+	}
+	return !starting.empty() ? starting : containing;
+}
+
 std::vector<size_t> FindPlayersMatching(string_view text)
 {
 	if (const std::optional<size_t> exact = FindPlayerByName(text))
@@ -661,7 +683,7 @@ std::string TextCmdPos(const string_view parameter)
 		Marker = std::nullopt;
 		return std::string(_("Automap marker cleared."));
 	}
-	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>:<target>, /pos <player name> or /pos off."));
+	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>:<target>, /pos <player name>, /pos <unique monster name> or /pos off."));
 	// A target on any level, written like the end of a seed code ("16:m59", "s5:m40", "9:68,76"), or a whole code.
 	if (parameter.find(':') != string_view::npos) {
 		string_view code = parameter;
@@ -683,8 +705,20 @@ std::string TextCmdPos(const string_view parameter)
 	if (!marker) {
 		// Another player, by name or part of it: the automap shows the way to whatever level they're on.
 		const std::vector<size_t> matches = FindPlayersMatching(parameter);
-		if (matches.empty())
-			return usage;
+		if (matches.empty()) {
+			// Or a unique monster on this level, by name or part of it.
+			const std::vector<int> monsters = FindUniqueMonstersMatching(parameter);
+			if (monsters.empty())
+				return usage;
+			if (monsters.size() > 1) {
+				std::string names;
+				for (int id : monsters)
+					names += (names.empty() ? "" : ", ") + std::string(Monsters[id].name());
+				return fmt::format(fmt::runtime(_("\"{:s}\" could be {:s}. Type more of the name.")), parameter, names);
+			}
+			Marker = ParseMarkerTarget(fmt::format("m{:d}", monsters[0]), currlevel, setlevel);
+			return GetAutomapMarkerText();
+		}
 		if (matches.size() > 1) {
 			std::string names;
 			for (size_t id : matches)
@@ -711,7 +745,7 @@ std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
-	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | <player name> | off]"), &TextCmdPos },
+	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a player's level."), N_("[<x>,<y> | m<number> | o<number> | <level>:<target> | <player name> | <unique monster name> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
