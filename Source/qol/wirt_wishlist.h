@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "utils/stdcompat/string_view.hpp"
@@ -19,6 +20,16 @@ constexpr int WirtWishlistTries = 100000;
 
 /** @brief Whether a /wirt hunt is running. */
 bool WirtWishlistActive();
+
+/** @brief Whether a /wirt or /adria hunt is rolling items right now. */
+bool IsWishlistHuntRunning();
+
+/**
+ * @brief An item seed for a hunt's next roll, independent of every roll before it. The game seeds each item from the
+ * state the last one left (AdvanceRndSeed), a chain that soon runs in a loop, the same loop from almost anywhere, so a
+ * long hunt kept seeing the same items and some it could never reach. In the game's own range, 0 to 2^31 - 1.
+ */
+uint32_t NextHuntSeed();
 
 /** @brief Whether an item Wirt rolled fits the wishlist of the hunt running. */
 bool WirtWishlistMatches(const Item &item);

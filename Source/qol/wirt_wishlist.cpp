@@ -1062,6 +1062,21 @@ std::string ItemReport(const Item &item)
 
 } // namespace
 
+bool IsWishlistHuntRunning()
+{
+	return WirtWishlistActive() || AdriaRollsLeft > 0;
+}
+
+uint32_t NextHuntSeed()
+{
+	// splitmix64, started once from the clock.
+	static uint64_t state = SDL_GetPerformanceCounter();
+	uint64_t z = (state += 0x9E3779B97F4A7C15ULL);
+	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+	z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+	return static_cast<uint32_t>((z ^ (z >> 31)) & 0x7FFFFFFF);
+}
+
 bool WirtWishlistActive()
 {
 	return Wish.has_value();
@@ -1108,6 +1123,8 @@ void HuntAdria(int lvl)
 	// Tries are rolls, as for Wirt: every slot rerolled and every restock, not the restocks alone.
 	const auto triesSoFar = []() { return FormatInteger(std::min(AdriaRollBudget, AdriaRollBudget - AdriaRollsLeft)); };
 	while (true) {
+		// Each restock from a seed of its own, as each roll is (NextHuntSeed).
+		SetRndSeed(NextHuntSeed());
 		SpawnWitch(lvl);
 		// Name everything she has that fits, alike ones together: "Adria has Book of Elemental x2, Book of Blood Star."
 		std::vector<std::pair<std::string, int>> found;

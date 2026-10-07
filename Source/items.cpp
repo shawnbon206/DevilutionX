@@ -4341,7 +4341,7 @@ void SpawnWitch(int lvl)
 		bool wishlistSlot = false;
 		do {
 			item = {};
-			item._iSeed = AdvanceRndSeed();
+			item._iSeed = IsWishlistHuntRunning() ? NextHuntSeed() : AdvanceRndSeed();
 			SetRndSeed(item._iSeed);
 			_item_indexes itemData = RndWitchItem(*MyPlayer, lvl);
 			GetItemAttrs(item, itemData, lvl);
@@ -4388,7 +4388,7 @@ void SpawnBoy(int lvl)
 	do {
 		keepgoing = false;
 		boyitem = {};
-		boyitem._iSeed = AdvanceRndSeed();
+		boyitem._iSeed = IsWishlistHuntRunning() ? NextHuntSeed() : AdvanceRndSeed();
 		SetRndSeed(boyitem._iSeed);
 		_item_indexes itype = RndBoyItem(*MyPlayer, lvl);
 		GetItemAttrs(boyitem, itype, lvl);
