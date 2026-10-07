@@ -933,6 +933,9 @@ constexpr int AdriaRollBudget = 200000;
 /** What's left of the budget in the hunt going on; 0 when none is. */
 int AdriaRollsLeft = 0;
 
+/** The tries it took the hunt going on to roll a fit, once it has; 0 till then. */
+int AdriaTriesAtFind = 0;
+
 /** The kinds the hunt rerolls slots of: those the wishlist names, or that it could fit at the stock level. */
 bool AdriaWantsStaff = false;
 bool AdriaWantsBook = false;
@@ -1097,8 +1100,13 @@ bool IsAdriaWishlistSlot(const Item &item)
 
 bool RerollAdriaWishlistSlot(const Item &item)
 {
-	if (AdriaRollsLeft <= 0 || MatchesWish(*AdriaWish, item))
+	// Once one slot has a fit, the others stop rolling, so the tries are counted to the find.
+	if (AdriaRollsLeft <= 0 || AdriaTriesAtFind != 0)
 		return false;
+	if (MatchesWish(*AdriaWish, item)) {
+		AdriaTriesAtFind = AdriaRollBudget - AdriaRollsLeft + 1;
+		return false;
+	}
 	AdriaRollsLeft--;
 	return true;
 }
@@ -1120,8 +1128,11 @@ void HuntAdria(int lvl)
 	AdriaWantsStaff = wants("staff");
 	AdriaWantsBook = wants("book");
 	AdriaRollsLeft = AdriaRollBudget;
-	// Tries are rolls, as for Wirt: every slot rerolled and every restock, not the restocks alone.
-	const auto triesSoFar = []() { return FormatInteger(std::min(AdriaRollBudget, AdriaRollBudget - AdriaRollsLeft)); };
+	AdriaTriesAtFind = 0;
+	// Tries are rolls, as for Wirt: every slot rerolled and every restock, not the restocks alone; up to the find.
+	const auto triesSoFar = []() {
+		return FormatInteger(AdriaTriesAtFind != 0 ? AdriaTriesAtFind : std::max(1, std::min(AdriaRollBudget, AdriaRollBudget - AdriaRollsLeft)));
+	};
 	while (true) {
 		// Each restock from a seed of its own, as each roll is (NextHuntSeed).
 		SetRndSeed(NextHuntSeed());
