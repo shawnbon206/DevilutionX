@@ -1105,10 +1105,10 @@ void HuntAdria(int lvl)
 	AdriaWantsStaff = wants("staff");
 	AdriaWantsBook = wants("book");
 	AdriaRollsLeft = AdriaRollBudget;
-	int restocks = 0;
+	// Tries are rolls, as for Wirt: every slot rerolled and every restock, not the restocks alone.
+	const auto triesSoFar = []() { return FormatInteger(std::min(AdriaRollBudget, AdriaRollBudget - AdriaRollsLeft)); };
 	while (true) {
 		SpawnWitch(lvl);
-		restocks++;
 		// Name everything she has that fits, alike ones together: "Adria has Book of Elemental x2, Book of Blood Star."
 		std::vector<std::pair<std::string, int>> found;
 		for (const Item &item : witchitem) {
@@ -1126,11 +1126,11 @@ void HuntAdria(int lvl)
 			for (const auto &[name, count] : found)
 				what += StrCat(what.empty() ? "" : ", ", name, count > 1 ? StrCat(" x", count) : "");
 			// The restocks happen out of sight, at once; only the stock she ends up with is seen, so they aren't counted out.
-			EventPlrMsg(fmt::format(fmt::runtime(_("Adria has {:s}.")), what));
+			EventPlrMsg(fmt::format(fmt::runtime(_("Adria has {:s}, after {:s} tries.")), what, triesSoFar()));
 			break;
 		}
 		if (AdriaRollsLeft <= 0) {
-			EventPlrMsg(fmt::format(fmt::runtime(_("Adria has nothing on your wishlist this time ({:d} tries).")), restocks));
+			EventPlrMsg(fmt::format(fmt::runtime(_("Adria found nothing on your wishlist in {:s} tries.")), triesSoFar()));
 			break;
 		}
 		AdriaRollsLeft -= 9;
