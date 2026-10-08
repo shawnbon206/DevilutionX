@@ -119,6 +119,12 @@ struct RealGear {
 	int32_t maxHPBase;
 	int32_t manaBase;
 	int32_t maxManaBase;
+	/**
+	 * The graphics the player is drawn with. Working out stats without loading graphics still marks the gear's as
+	 * current (CalcPlrItemVals), so if the disguise ran between a change of gear and the game's own reload, the reload
+	 * was skipped and the old look stayed.
+	 */
+	uint8_t gfxNum;
 };
 
 /** Far above any real life or mana, so that worn in a disguise the player never comes out at 0 life (and dies). */
@@ -138,6 +144,7 @@ RealGear PutOnDisguise(Player &player)
 	real.maxHPBase = player._pMaxHPBase;
 	real.manaBase = player._pManaBase;
 	real.maxManaBase = player._pMaxManaBase;
+	real.gfxNum = player._pgfxnum;
 
 	for (Item &item : player.InvBody)
 		item = DisguisedItem(item);
@@ -163,6 +170,7 @@ void TakeOffDisguise(Player &player, const RealGear &real)
 	player._pManaBase = real.manaBase;
 	player._pMaxManaBase = real.maxManaBase;
 	CalcPlrInv(player, false);
+	player._pgfxnum = real.gfxNum;
 }
 
 /** What the items give in life and mana: the maximum less the base. */
