@@ -46,7 +46,7 @@ bool RerollAdriaWishlistSlot(const Item &item);
  */
 void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear);
 
-/** @brief Runs the /wirt and /adria hunts on, a slice each, for a couple of milliseconds; called each game tick. */
+/** @brief Runs the /wirt and /adria hunts on, a slice each, for half a millisecond; called each game tick. */
 void UpdateWishlistHunts();
 
 /**

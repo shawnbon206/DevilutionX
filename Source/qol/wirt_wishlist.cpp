@@ -1065,9 +1065,9 @@ struct {
 	int tooDear = 0;
 } WirtSliceResult;
 
-/** Tries in one slice: a few hundred items, well under a millisecond. */
-constexpr int WirtSliceTries = 250;
-constexpr int AdriaSliceRolls = 250;
+/** Tries in one slice: a few dozen items, a small part of the time a tick may spend hunting. */
+constexpr int WirtSliceTries = 50;
+constexpr int AdriaSliceRolls = 60;
 
 } // namespace
 
@@ -1245,7 +1245,8 @@ void UpdateWishlistHunts()
 	// Not while you talk to anyone in town or shop, so nothing changes under the cursor.
 	if (stextflag != TalkID::None)
 		return;
-	const uint64_t deadline = SDL_GetPerformanceCounter() + SDL_GetPerformanceFrequency() / 500;
+	// Half a millisecond a tick, so even at a high frame rate the game doesn't feel it; hunts just take longer.
+	const uint64_t deadline = SDL_GetPerformanceCounter() + SDL_GetPerformanceFrequency() / 2000;
 	while ((WirtHunt.active || AdriaHunt.active) && SDL_GetPerformanceCounter() < deadline) {
 		if (WirtHunt.active)
 			WirtSlice();
