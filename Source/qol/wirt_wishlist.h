@@ -2,7 +2,7 @@
  * @file wirt_wishlist.h
  *
  * /wirt and /adria: Wirt rerolls his item, or Adria her stock, until it fits a wishlist, written like the seed search's
- * (drops.ps1). Each command is one hunt, then; nothing is kept for later restocks.
+ * (drops.ps1). A hunt runs in the background, a slice of tries each game tick, while you're in town.
  */
 #pragma once
 
@@ -15,8 +15,8 @@ namespace devilution {
 
 struct Item;
 
-/** How many items Wirt rolls at most looking for a wanted one, so an impossible wishlist can't hang the game. */
-constexpr int WirtWishlistTries = 100000;
+/** How many items Wirt rolls at most in one go (SpawnBoy): a slice of a background hunt. */
+extern int WirtWishlistTries;
 
 /** @brief Whether a /wirt hunt is running. */
 bool WirtWishlistActive();
@@ -41,27 +41,23 @@ bool IsAdriaWishlistSlot(const Item &item);
 bool RerollAdriaWishlistSlot(const Item &item);
 
 /**
- * @brief Says in the chat log how Wirt's hunt went: what he found and after how many tries, or that he found nothing,
- * and how many wanted items he rolled that cost more than he may ask.
+ * @brief Notes how a slice of Wirt's hunt went (SpawnBoy): whether he rolled a fit, after how many tries, and how many
+ * wanted items he rolled that cost more than he may ask.
  */
 void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear);
 
-/**
- * @brief Adria stocks up (SpawnWitch at her stock level). During an /adria hunt, every slot she'd stock with a kind on the
- * wishlist rerolls until it fits, and she restocks until she has at least one, within a limited number of rolls; the
- * chat log says what she has.
- */
-void HuntAdria(int lvl);
+/** @brief Runs the /wirt and /adria hunts on, a slice each, for a couple of milliseconds; called each game tick. */
+void UpdateWishlistHunts();
 
 /**
  * @brief The /adria command, like /wirt for Adria's staves and books, in town: "/adria --type book --suffix teleport" or
- * "/adria --prefix bountiful --suffix firebolt --min-roll 90"; "/adria bases ..." lists the bases.
+ * "/adria --prefix bountiful --suffix firebolt --min-roll 90"; "/adria bases ..." lists the bases, "/adria off" stops.
  */
 std::string TextCmdAdria(string_view parameter);
 
 /**
- * @brief The /wirt command: "/wirt --type ring --prefix obsidian --suffix zodiac --min-roll 90" has Wirt reroll his item
- * until it fits, once, now; "/wirt bases ..." lists the bases with their prices.
+ * @brief The /wirt command, in town: "/wirt --type ring --prefix obsidian --suffix zodiac --min-roll 90" has Wirt reroll
+ * his item until it fits; "/wirt bases ..." lists the bases with their prices, "/wirt off" stops.
  */
 std::string TextCmdWirt(string_view parameter);
 

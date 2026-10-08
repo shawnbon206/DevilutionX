@@ -469,24 +469,6 @@ std::optional<Wishlist> ParseWishlist(string_view text, std::string &error)
 	return wish;
 }
 
-/**
- * Has Wirt roll a new item now, as for a character of this level; he keeps it until you've gained two levels or bought
- * it, wherever you are.
- */
-void RerollWirt(int level)
-{
-	boyitem = {};
-	if (MyPlayer == nullptr)
-		return;
-	// A fresh start each time, as the stores get one (SetupTownStores), so asking again doesn't replay the same items.
-	const uint32_t rngState = GetLCGEngineState();
-	SetRndSeed(SDL_GetTicks());
-	SpawnBoy(level);
-	SetRndSeed(rngState);
-	// SpawnBoy marks the item as rolled for that level; it's yours, so he keeps it as long as one rolled at your own.
-	boylevel = MyPlayer->_pLevel / 2;
-}
-
 /** The affix item kinds an item type takes affixes for. */
 AffixItemType AffixKindsFor(string_view type)
 {
@@ -927,8 +909,8 @@ bool MatchesWish(const Wishlist &wish, const Item &item)
 
 std::optional<Wishlist> AdriaWish;
 
-/** How many items Adria rolls at most in one hunt, over all her restocks and slot rerolls, so it can't hang the game. */
-constexpr int AdriaRollBudget = 200000;
+/** How many items Adria rolls in one slice of a hunt, over her restocks and slot rerolls. */
+int AdriaRollBudget = 0;
 
 /** What's left of the budget in the hunt going on; 0 when none is. */
 int AdriaRollsLeft = 0;
@@ -1063,7 +1045,33 @@ std::string ItemReport(const Item &item)
 	return item._iIName;
 }
 
+/** A hunt running in the background: what it wants, the game it was started in, and its tally. */
+struct Hunt {
+	bool active = false;
+	uint32_t gameSeed = 0;
+	Wishlist wish;
+	int level = 0;
+	std::optional<int> rolledAt;
+	uint64_t tries = 0;
+	uint64_t tooDear = 0;
+};
+Hunt WirtHunt;
+Hunt AdriaHunt;
+
+/** How the last slice of Wirt's hunt went, as SpawnBoy reports it. */
+struct {
+	bool found = false;
+	int tries = 0;
+	int tooDear = 0;
+} WirtSliceResult;
+
+/** Tries in one slice: a few hundred items, well under a millisecond. */
+constexpr int WirtSliceTries = 250;
+constexpr int AdriaSliceRolls = 250;
+
 } // namespace
+
+int WirtWishlistTries = WirtSliceTries;
 
 bool IsWishlistHuntRunning()
 {
@@ -1111,12 +1119,15 @@ bool RerollAdriaWishlistSlot(const Item &item)
 	return true;
 }
 
-void HuntAdria(int lvl)
+namespace {
+
+/**
+ * One slice of an /adria hunt: Adria restocks (SpawnWitch at her stock level), every slot she'd stock with a kind on the
+ * wishlist rerolling until it fits, until she has one or the slice's rolls are used. What she has that fits, alike ones
+ * together ("Book of Elemental x2, Book of Blood Star"), or nothing; and the tries it took.
+ */
+std::string HuntAdria(int lvl, int &tries)
 {
-	if (!AdriaWish) {
-		SpawnWitch(lvl);
-		return;
-	}
 	// Reroll the slots of a kind the wishlist can be, judged with the wishlist narrowed to that kind.
 	const auto wants = [lvl](const char *kind) {
 		Wishlist narrowed = *AdriaWish;
@@ -1127,17 +1138,14 @@ void HuntAdria(int lvl)
 	};
 	AdriaWantsStaff = wants("staff");
 	AdriaWantsBook = wants("book");
+	AdriaRollBudget = AdriaSliceRolls;
 	AdriaRollsLeft = AdriaRollBudget;
 	AdriaTriesAtFind = 0;
-	// Tries are rolls, as for Wirt: every slot rerolled and every restock, not the restocks alone; up to the find.
-	const auto triesSoFar = []() {
-		return FormatInteger(AdriaTriesAtFind != 0 ? AdriaTriesAtFind : std::max(1, std::min(AdriaRollBudget, AdriaRollBudget - AdriaRollsLeft)));
-	};
+	std::string what;
 	while (true) {
 		// Each restock from a seed of its own, as each roll is (NextHuntSeed).
 		SetRndSeed(NextHuntSeed());
 		SpawnWitch(lvl);
-		// Name everything she has that fits, alike ones together: "Adria has Book of Elemental x2, Book of Blood Star."
 		std::vector<std::pair<std::string, int>> found;
 		for (const Item &item : witchitem) {
 			if (!MatchesWish(*AdriaWish, item))
@@ -1150,20 +1158,100 @@ void HuntAdria(int lvl)
 				same->second++;
 		}
 		if (!found.empty()) {
-			std::string what;
 			for (const auto &[name, count] : found)
 				what += StrCat(what.empty() ? "" : ", ", name, count > 1 ? StrCat(" x", count) : "");
-			// The restocks happen out of sight, at once; only the stock she ends up with is seen, so they aren't counted out.
-			EventPlrMsg(fmt::format(fmt::runtime(_("Adria has {:s}, after {:s} tries.")), what, triesSoFar()));
 			break;
 		}
-		if (AdriaRollsLeft <= 0) {
-			EventPlrMsg(fmt::format(fmt::runtime(_("Adria found nothing on your wishlist in {:s} tries.")), triesSoFar()));
+		if (AdriaRollsLeft <= 0)
 			break;
-		}
 		AdriaRollsLeft -= 9;
 	}
+	// Tries are rolls, as for Wirt: every slot rerolled and every restock, up to the find.
+	tries = AdriaTriesAtFind != 0 ? AdriaTriesAtFind : std::max(1, std::min(AdriaRollBudget, AdriaRollBudget - AdriaRollsLeft));
 	AdriaRollsLeft = 0;
+	return what;
+}
+
+/** One slice of Wirt's hunt; his item is put back unless it found a fit, so his shop never shows one in between. */
+void WirtSlice()
+{
+	Wish = WirtHunt.wish;
+	RolledAt = WirtHunt.rolledAt;
+	const Item before = boyitem;
+	const int beforeLevel = boylevel;
+	const uint32_t rngState = GetLCGEngineState();
+	WirtSliceResult = {};
+	boyitem = {};
+	SpawnBoy(WirtHunt.level);
+	SetRndSeed(rngState);
+	Wish = std::nullopt;
+	WirtHunt.tries += WirtSliceResult.tries;
+	WirtHunt.tooDear += WirtSliceResult.tooDear;
+	if (!WirtSliceResult.found) {
+		boyitem = before;
+		boylevel = beforeLevel;
+		RolledAt = std::nullopt;
+		return;
+	}
+	// SpawnBoy marks the item as rolled for that level; it's yours, so he keeps it as long as one rolled at your own.
+	boylevel = MyPlayer->_pLevel / 2;
+	WirtHunt.active = false;
+	EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found {:s} after {:s} tries{:s}.")), boyitem._iIName, FormatInteger(WirtHunt.tries),
+	    RolledAt ? fmt::format(fmt::runtime(_(", rolling as for level {:d}")), *RolledAt) : ""));
+	RolledAt = std::nullopt;
+}
+
+/** One slice of Adria's hunt; her stock is put back unless it found a fit. */
+void AdriaSlice()
+{
+	AdriaWish = AdriaHunt.wish;
+	std::array<Item, WITCH_ITEMS> before;
+	std::copy(std::begin(witchitem), std::end(witchitem), before.begin());
+	const uint32_t rngState = GetLCGEngineState();
+	int tries = 0;
+	const std::string what = HuntAdria(AdriaStockLevel(), tries);
+	SetRndSeed(rngState);
+	AdriaWish = std::nullopt;
+	AdriaHunt.tries += tries;
+	if (what.empty()) {
+		std::copy(before.begin(), before.end(), std::begin(witchitem));
+		return;
+	}
+	AdriaHunt.active = false;
+	EventPlrMsg(fmt::format(fmt::runtime(_("Adria has {:s}, after {:s} tries.")), what, FormatInteger(AdriaHunt.tries)));
+}
+
+} // namespace
+
+void UpdateWishlistHunts()
+{
+	if ((!WirtHunt.active && !AdriaHunt.active) || MyPlayer == nullptr)
+		return;
+	// A hunt belongs to the game it was started in, and to town: Adria restocks when you come back, and it's where both
+	// shops are.
+	for (Hunt *hunt : { &WirtHunt, &AdriaHunt }) {
+		if (hunt->active && hunt->gameSeed != sgGameInitInfo.dwSeed)
+			hunt->active = false;
+	}
+	if (leveltype != DTYPE_TOWN) {
+		if (WirtHunt.active)
+			EventPlrMsg(std::string(_("Wirt stopped looking: you left town.")));
+		if (AdriaHunt.active)
+			EventPlrMsg(std::string(_("Adria stopped looking: you left town.")));
+		WirtHunt.active = false;
+		AdriaHunt.active = false;
+		return;
+	}
+	// Not while you talk to anyone in town or shop, so nothing changes under the cursor.
+	if (stextflag != TalkID::None)
+		return;
+	const uint64_t deadline = SDL_GetPerformanceCounter() + SDL_GetPerformanceFrequency() / 500;
+	while ((WirtHunt.active || AdriaHunt.active) && SDL_GetPerformanceCounter() < deadline) {
+		if (WirtHunt.active)
+			WirtSlice();
+		if (AdriaHunt.active)
+			AdriaSlice();
+	}
 }
 
 namespace {
@@ -1218,6 +1306,12 @@ std::string TextCmdAdria(string_view parameter)
 {
 	if (parameter.empty())
 		return std::string(_("Use /adria --type staff book --prefix ... --suffix ... --min-roll N, or /adria bases ..."));
+	if (AsciiStrToLower(parameter) == "off") {
+		const bool was = AdriaHunt.active;
+		AdriaHunt.active = false;
+		return was ? fmt::format(fmt::runtime(_("Adria stopped looking, after {:s} tries.")), FormatInteger(AdriaHunt.tries))
+		           : std::string(_("Adria isn't looking for anything."));
+	}
 	// "/adria bases ..." (or "base") lists the bases instead of hunting.
 	for (const string_view word : { string_view("bases"), string_view("base") }) {
 		const std::string lower = AsciiStrToLower(parameter);
@@ -1233,33 +1327,28 @@ std::string TextCmdAdria(string_view parameter)
 	// She restocks each time you come to town, which would undo a hunt done elsewhere.
 	if (leveltype != DTYPE_TOWN || MyPlayer == nullptr)
 		return std::string(_("Go to town first: Adria restocks when you arrive."));
-	// One hunt, now; the wishlist is only kept while it runs. A fresh start, as the stores get one in town.
-	AdriaWish = std::move(wish);
-	const uint32_t rngState = GetLCGEngineState();
-	SetRndSeed(SDL_GetTicks());
-	HuntAdria(AdriaStockLevel());
-	SetRndSeed(rngState);
-	AdriaWish = std::nullopt;
-	return "";
+	AdriaHunt.active = true;
+	AdriaHunt.gameSeed = sgGameInitInfo.dwSeed;
+	AdriaHunt.wish = std::move(*wish);
+	AdriaHunt.tries = 0;
+	return std::string(_("Adria is looking; stay in town. /adria off stops."));
 }
 
-void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear)
+void ReportWirtWishlist(const Item & /*item*/, bool found, int tries, int tooDear)
 {
-	if (found) {
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found {:s} after {:d} tries{:s}.")), item._iIName, tries + 1,
-		    RolledAt ? fmt::format(fmt::runtime(_(", rolling as for level {:d}")), *RolledAt) : ""));
-	} else if (tooDear > 0) {
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found nothing in {:d} tries: the {:d} he rolled that fit would cost over {:s} gold, more than he asks.")),
-		    WirtWishlistTries, tooDear, FormatInteger(WirtAskingPrice(MaxBoyValue))));
-	} else {
-		EventPlrMsg(fmt::format(fmt::runtime(_("Wirt found nothing on your wishlist in {:d} tries.")), WirtWishlistTries));
-	}
+	WirtSliceResult = { found, found ? tries + 1 : tries, tooDear };
 }
 
 std::string TextCmdWirt(string_view parameter)
 {
 	if (parameter.empty())
 		return std::string(_("Use /wirt --type ... --base ... --prefix ... --suffix ... --min-roll N, or /wirt bases ..."));
+	if (AsciiStrToLower(parameter) == "off") {
+		const bool was = WirtHunt.active;
+		WirtHunt.active = false;
+		return was ? fmt::format(fmt::runtime(_("Wirt stopped looking, after {:s} tries.")), FormatInteger(WirtHunt.tries))
+		           : std::string(_("Wirt isn't looking for anything."));
+	}
 	// "/wirt bases ..." (or "base") lists the bases instead of hunting.
 	for (const string_view word : { string_view("bases"), string_view("base") }) {
 		const std::string lower = AsciiStrToLower(parameter);
@@ -1273,14 +1362,16 @@ std::string TextCmdWirt(string_view parameter)
 	int level;
 	if (const std::string reason = WhyImpossible(*wish, true, true, &level); !reason.empty())
 		return reason;
-	// One hunt, now; the wishlist is only kept while it runs.
-	Wish = std::move(wish);
-	if (level != MyPlayer->_pLevel)
-		RolledAt = level;
-	RerollWirt(level);
-	Wish = std::nullopt;
-	RolledAt = std::nullopt;
-	return "";
+	if (leveltype != DTYPE_TOWN || MyPlayer == nullptr)
+		return std::string(_("Go to town first: Wirt looks while you're there."));
+	WirtHunt.active = true;
+	WirtHunt.gameSeed = sgGameInitInfo.dwSeed;
+	WirtHunt.wish = std::move(*wish);
+	WirtHunt.level = level;
+	WirtHunt.rolledAt = level != MyPlayer->_pLevel ? std::optional<int>(level) : std::nullopt;
+	WirtHunt.tries = 0;
+	WirtHunt.tooDear = 0;
+	return std::string(_("Wirt is looking; stay in town. /wirt off stops."));
 }
 
 } // namespace devilution

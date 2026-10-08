@@ -71,6 +71,7 @@
 #include "qol/itemlabels.h"
 #include "qol/monhealthbar.h"
 #include "qol/stash.h"
+#include "qol/wirt_wishlist.h"
 #include "qol/xpbar.h"
 #include "restrict.h"
 #include "stores.h"
@@ -1436,6 +1437,7 @@ void GameLogic()
 	sound_update();
 	CheckTriggers();
 	CheckQuests();
+	UpdateWishlistHunts();
 	RedrawViewport();
 	pfile_update(false);
 
