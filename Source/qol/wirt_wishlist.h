@@ -2,7 +2,7 @@
  * @file wirt_wishlist.h
  *
  * /wirt and /adria: Wirt rerolls his item, or Adria her stock, until it fits a wishlist, written like the seed search's
- * (drops.ps1). A hunt runs in the background, a slice of tries each game tick, while you're in town.
+ * (drops.ps1). A hunt runs in the background, a slice of tries each game tick, wherever you are in the game.
  */
 #pragma once
 
@@ -48,6 +48,9 @@ void ReportWirtWishlist(const Item &item, bool found, int tries, int tooDear);
 
 /** @brief Runs the /wirt and /adria hunts on, a slice each, for half a millisecond; called each game tick. */
 void UpdateWishlistHunts();
+
+/** @brief After Adria restocks on your arrival in town: what her hunt found while you were away, in its place. */
+void TakePendingAdriaStock();
 
 /**
  * @brief The /adria command, like /wirt for Adria's staves and books, in town: "/adria --type book --suffix teleport" or

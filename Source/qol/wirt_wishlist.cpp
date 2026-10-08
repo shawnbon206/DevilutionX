@@ -1201,6 +1201,13 @@ void WirtSlice()
 	RolledAt = std::nullopt;
 }
 
+/**
+ * A stock Adria's hunt found while you were away from town, for the game it's in: she restocks when you arrive, so it
+ * takes the place of that restock (TakePendingAdriaStock).
+ */
+std::optional<std::array<Item, WITCH_ITEMS>> AdriaPendingStock;
+uint32_t AdriaPendingGameSeed = 0;
+
 /** One slice of Adria's hunt; her stock is put back unless it found a fit. */
 void AdriaSlice()
 {
@@ -1218,29 +1225,34 @@ void AdriaSlice()
 		return;
 	}
 	AdriaHunt.active = false;
+	if (leveltype != DTYPE_TOWN) {
+		AdriaPendingStock.emplace();
+		std::copy(std::begin(witchitem), std::end(witchitem), AdriaPendingStock->begin());
+		AdriaPendingGameSeed = sgGameInitInfo.dwSeed;
+		std::copy(before.begin(), before.end(), std::begin(witchitem));
+		EventPlrMsg(fmt::format(fmt::runtime(_("Adria will have {:s} when you're back in town, after {:s} tries.")), what, FormatInteger(AdriaHunt.tries)));
+		return;
+	}
 	EventPlrMsg(fmt::format(fmt::runtime(_("Adria has {:s}, after {:s} tries.")), what, FormatInteger(AdriaHunt.tries)));
 }
 
 } // namespace
 
+void TakePendingAdriaStock()
+{
+	if (AdriaPendingStock && AdriaPendingGameSeed == sgGameInitInfo.dwSeed)
+		std::copy(AdriaPendingStock->begin(), AdriaPendingStock->end(), std::begin(witchitem));
+	AdriaPendingStock = std::nullopt;
+}
+
 void UpdateWishlistHunts()
 {
 	if ((!WirtHunt.active && !AdriaHunt.active) || MyPlayer == nullptr)
 		return;
-	// A hunt belongs to the game it was started in, and to town: Adria restocks when you come back, and it's where both
-	// shops are.
+	// A hunt belongs to the game it was started in; it goes on wherever you are in it.
 	for (Hunt *hunt : { &WirtHunt, &AdriaHunt }) {
 		if (hunt->active && hunt->gameSeed != sgGameInitInfo.dwSeed)
 			hunt->active = false;
-	}
-	if (leveltype != DTYPE_TOWN) {
-		if (WirtHunt.active)
-			EventPlrMsg(std::string(_("Wirt stopped looking: you left town.")));
-		if (AdriaHunt.active)
-			EventPlrMsg(std::string(_("Adria stopped looking: you left town.")));
-		WirtHunt.active = false;
-		AdriaHunt.active = false;
-		return;
 	}
 	// Not while you talk to anyone in town or shop, so nothing changes under the cursor.
 	if (stextflag != TalkID::None)
@@ -1305,8 +1317,11 @@ std::string ListAdriaBases(string_view text)
 
 std::string TextCmdAdria(string_view parameter)
 {
-	if (parameter.empty())
+	if (parameter.empty()) {
+		if (AdriaHunt.active)
+			return fmt::format(fmt::runtime(_("Adria is looking: {:s} tries so far.")), FormatInteger(AdriaHunt.tries));
 		return std::string(_("Use /adria --type staff book --prefix ... --suffix ... --min-roll N, or /adria bases ..."));
+	}
 	if (AsciiStrToLower(parameter) == "off") {
 		const bool was = AdriaHunt.active;
 		AdriaHunt.active = false;
@@ -1325,14 +1340,13 @@ std::string TextCmdAdria(string_view parameter)
 		return error;
 	if (const std::string reason = WhyAdriaCant(*wish); !reason.empty())
 		return reason;
-	// She restocks each time you come to town, which would undo a hunt done elsewhere.
-	if (leveltype != DTYPE_TOWN || MyPlayer == nullptr)
-		return std::string(_("Go to town first: Adria restocks when you arrive."));
+	if (MyPlayer == nullptr)
+		return "";
 	AdriaHunt.active = true;
 	AdriaHunt.gameSeed = sgGameInitInfo.dwSeed;
 	AdriaHunt.wish = std::move(*wish);
 	AdriaHunt.tries = 0;
-	return std::string(_("Adria is looking; stay in town. /adria off stops."));
+	return std::string(_("Adria is looking. /adria shows how far, /adria off stops."));
 }
 
 void ReportWirtWishlist(const Item & /*item*/, bool found, int tries, int tooDear)
@@ -1342,8 +1356,11 @@ void ReportWirtWishlist(const Item & /*item*/, bool found, int tries, int tooDea
 
 std::string TextCmdWirt(string_view parameter)
 {
-	if (parameter.empty())
+	if (parameter.empty()) {
+		if (WirtHunt.active)
+			return fmt::format(fmt::runtime(_("Wirt is looking: {:s} tries so far.")), FormatInteger(WirtHunt.tries));
 		return std::string(_("Use /wirt --type ... --base ... --prefix ... --suffix ... --min-roll N, or /wirt bases ..."));
+	}
 	if (AsciiStrToLower(parameter) == "off") {
 		const bool was = WirtHunt.active;
 		WirtHunt.active = false;
@@ -1363,8 +1380,8 @@ std::string TextCmdWirt(string_view parameter)
 	int level;
 	if (const std::string reason = WhyImpossible(*wish, true, true, &level); !reason.empty())
 		return reason;
-	if (leveltype != DTYPE_TOWN || MyPlayer == nullptr)
-		return std::string(_("Go to town first: Wirt looks while you're there."));
+	if (MyPlayer == nullptr)
+		return "";
 	WirtHunt.active = true;
 	WirtHunt.gameSeed = sgGameInitInfo.dwSeed;
 	WirtHunt.wish = std::move(*wish);
@@ -1372,7 +1389,7 @@ std::string TextCmdWirt(string_view parameter)
 	WirtHunt.rolledAt = level != MyPlayer->_pLevel ? std::optional<int>(level) : std::nullopt;
 	WirtHunt.tries = 0;
 	WirtHunt.tooDear = 0;
-	return std::string(_("Wirt is looking; stay in town. /wirt off stops."));
+	return std::string(_("Wirt is looking. /wirt shows how far, /wirt off stops."));
 }
 
 } // namespace devilution
