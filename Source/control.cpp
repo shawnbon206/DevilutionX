@@ -549,6 +549,8 @@ struct PositionMarker {
 	Point tile;
 	uint8_t level;
 	bool isSetLevel;
+	/** For a tile left by a marked monster's death: its name, and its number (index). */
+	std::string remainsOf;
 };
 
 std::optional<PositionMarker> Marker;
@@ -575,6 +577,21 @@ std::string MarkerLevelName(uint8_t level, bool isSetLevel)
 bool IsActiveMonster(int index)
 {
 	return std::find(ActiveMonsters, ActiveMonsters + ActiveMonsterCount, index) != ActiveMonsters + ActiveMonsterCount;
+}
+
+/**
+ * Where a dead monster fell: its tile once it's dead, kept for a kill made while you were elsewhere too (the kill is
+ * shared with where it happened, delta_kill_monster, and put back when you arrive, DeltaLoadLevel). Nothing for a live
+ * monster, or one never on the map (a skeleton still waiting in its sarcophagus).
+ */
+std::optional<Point> DeathTile(int index)
+{
+	const Monster &monster = Monsters[index];
+	if (IsActiveMonster(index) && monster.hitPoints > 0 && !monster.isInvalid)
+		return std::nullopt;
+	if (monster.hitPoints > 0 || monster.position.tile == Point { 0, 0 } || monster.position.tile == GolemHoldingCell)
+		return std::nullopt;
+	return monster.position.tile;
 }
 
 bool IsActiveObject(int index)
@@ -664,7 +681,7 @@ std::string TextCmdPos(const string_view parameter)
 	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
 	if (!marker)
 		return usage;
-	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index))
+	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index) && DeathTile(marker->index) == std::nullopt)
 		return fmt::format(fmt::runtime(_("There is no m{:d} on this level.")), marker->index);
 	if (marker->kind == PositionMarker::Kind::Object && !IsActiveObject(marker->index))
 		return fmt::format(fmt::runtime(_("There is no o{:d} on this level.")), marker->index);
@@ -953,6 +970,13 @@ void RetireFinishedAutomapMarker()
 		const Monster &monster = Monsters[Marker->index];
 		if (IsActiveMonster(Marker->index) && monster.hitPoints > 0 && !monster.isInvalid)
 			return;
+		// Dead: the marker stays where it fell, where its drop lies, until /pos off.
+		if (const std::optional<Point> fell = DeathTile(Marker->index)) {
+			Marker->remainsOf = std::string(monster.name());
+			Marker->kind = PositionMarker::Kind::Tile;
+			Marker->tile = *fell;
+			return;
+		}
 	} else if (Marker->kind == PositionMarker::Kind::Object) {
 		if (IsActiveObject(Marker->index) && Objects[Marker->index]._oSelFlag != 0)
 			return;
@@ -1026,6 +1050,8 @@ std::string GetAutomapMarkerText()
 	case PositionMarker::Kind::Level:
 		return "";
 	default:
+		if (!Marker->remainsOf.empty())
+			return fmt::format(fmt::runtime(_("Marked: where {:s} (m{:d}) died, {:d}, {:d}")), Marker->remainsOf, Marker->index, Marker->tile.x, Marker->tile.y);
 		return fmt::format(fmt::runtime(_("Marked: {:d}, {:d}")), Marker->tile.x, Marker->tile.y);
 	}
 }
