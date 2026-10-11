@@ -2367,7 +2367,11 @@ void LoadGame(bool firstflag)
 
 	Player &myPlayer = *MyPlayer;
 
+	// The hero file's name wins over the one saved with the game, so a renamed hero keeps the new name.
+	char heroName[PlayerNameLength];
+	CopyUtf8(heroName, myPlayer._pName, sizeof(heroName));
 	LoadPlayer(file, myPlayer);
+	CopyUtf8(myPlayer._pName, heroName, sizeof(myPlayer._pName));
 
 	if (sgGameInitInfo.nDifficulty < DIFF_NORMAL || sgGameInitInfo.nDifficulty > DIFF_HELL)
 		sgGameInitInfo.nDifficulty = DIFF_NORMAL;

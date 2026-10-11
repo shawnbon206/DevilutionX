@@ -111,6 +111,7 @@ void (*gfnListSelect)(int value);
 void (*gfnListEsc)();
 void (*gfnFullscreen)();
 bool (*gfnListYesNo)();
+void (*gfnListRename)();
 std::vector<UiItemBase *> gUiItems;
 UiList *gUiList = nullptr;
 bool UiItemsWraps;
@@ -141,6 +142,11 @@ void AdjustListOffset(std::size_t itemIndex)
 
 } // namespace
 
+void UiSetListRename(void (*fnRename)())
+{
+	gfnListRename = fnRename;
+}
+
 void UiInitList(void (*fnFocus)(int value), void (*fnSelect)(int value), void (*fnEsc)(), const std::vector<std::unique_ptr<UiItemBase>> &items, bool itemsWraps, void (*fnFullscreen)(), bool (*fnYesNo)(), size_t selectedItem /*= 0*/)
 {
 	SelectedItem = selectedItem;
@@ -151,6 +157,7 @@ void UiInitList(void (*fnFocus)(int value), void (*fnSelect)(int value), void (*
 	gfnListEsc = fnEsc;
 	gfnFullscreen = fnFullscreen;
 	gfnListYesNo = fnYesNo;
+	gfnListRename = nullptr;
 	gUiItems.clear();
 	for (const auto &item : items)
 		gUiItems.push_back(item.get());
@@ -409,6 +416,12 @@ void UiFocusNavigation(SDL_Event *event)
 	case SDL_SYSWMEVENT:
 		mainmenu_restart_repintro();
 		break;
+	}
+
+	// F2 renames the highlighted entry, on lists that allow it (the hero list).
+	if (event->type == SDL_KEYDOWN && event->key.keysym.sym == SDLK_F2 && gfnListRename != nullptr) {
+		gfnListRename();
+		return;
 	}
 
 	bool menuActionHandled = false;

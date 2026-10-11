@@ -119,6 +119,9 @@ bool pfile_ui_set_hero_infos(bool (*uiAddHeroInfo)(_uiheroinfo *));
 void pfile_ui_set_class_stats(unsigned int playerClass, _uidefaultstats *classStats);
 uint32_t pfile_ui_get_first_unused_save_num();
 bool pfile_ui_save_create(_uiheroinfo *heroinfo);
+
+/** @brief Gives the hero in heroinfo's save its name; a saved single player game takes it when loaded. */
+bool pfile_ui_save_rename(const _uiheroinfo *heroinfo);
 bool pfile_delete_save(_uiheroinfo *heroInfo);
 void pfile_read_player_from_save(uint32_t saveNum, Player &player);
 void pfile_save_level();

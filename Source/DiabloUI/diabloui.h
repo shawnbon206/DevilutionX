@@ -110,6 +110,9 @@ void UiFocusNavigationSelect();
 void UiFocusNavigationEsc();
 void UiFocusNavigationYesNo();
 
+/** @brief F2 on the current list calls this; UiInitList clears it, so set it after. */
+void UiSetListRename(void (*fnRename)());
+
 void UiInitList(void (*fnFocus)(int value), void (*fnSelect)(int value), void (*fnEsc)(), const std::vector<std::unique_ptr<UiItemBase>> &items, bool wraps = false, void (*fnFullscreen)() = nullptr, bool (*fnYesNo)() = nullptr, size_t selectedItem = 0);
 void UiRenderListItems();
 void UiInitList_clear();

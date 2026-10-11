@@ -715,6 +715,24 @@ bool pfile_ui_save_create(_uiheroinfo *heroinfo)
 	return true;
 }
 
+bool pfile_ui_save_rename(const _uiheroinfo *heroinfo)
+{
+	const uint32_t saveNum = heroinfo->saveNumber;
+	if (saveNum >= MAX_CHARACTERS)
+		return false;
+	PlayerPack pkplr;
+	{
+		std::optional<SaveReader> archive = OpenSaveArchive(saveNum);
+		if (!archive || !ReadHero(*archive, &pkplr))
+			return false;
+	}
+	CopyUtf8(pkplr.pName, heroinfo->name, sizeof(pkplr.pName));
+	SaveWriter saveWriter = GetSaveWriter(saveNum);
+	EncodeHero(saveWriter, &pkplr);
+	CopyUtf8(hero_names[saveNum], heroinfo->name, sizeof(hero_names[saveNum]));
+	return true;
+}
+
 bool pfile_delete_save(_uiheroinfo *heroInfo)
 {
 	uint32_t saveNum = heroInfo->saveNumber;

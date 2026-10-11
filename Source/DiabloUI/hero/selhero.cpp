@@ -19,6 +19,7 @@
 #include "options.h"
 #include "pfile.h"
 #include "utils/language.h"
+#include "utils/str_case.hpp"
 #include "utils/str_cat.hpp"
 #include "utils/utf8.hpp"
 
@@ -40,6 +41,8 @@ char textStats[6][4];
 const char *title = "";
 _selhero_selections selhero_result;
 bool selhero_navigateYesNo;
+/** Whether the name screen is renaming the highlighted hero rather than naming a new one. */
+bool selhero_renaming = false;
 bool selhero_isSavegame;
 
 std::vector<std::unique_ptr<UiItemBase>> vecSelHeroDialog;
@@ -54,6 +57,7 @@ void SelheroListEsc();
 void SelheroLoadFocus(int value);
 void SelheroLoadSelect(int value);
 void SelheroNameSelect(int value);
+void SelheroNameInit();
 void SelheroNameEsc();
 void SelheroClassSelectorFocus(int value);
 void SelheroClassSelectorSelect(int value);
@@ -277,6 +281,12 @@ void SelheroClassSelectorSelect(int value)
 	memset(selhero_heroInfo.name, '\0', sizeof(selhero_heroInfo.name));
 	if (ShouldPrefillHeroName())
 		strcpy(selhero_heroInfo.name, SelheroGenerateName(selhero_heroInfo.heroclass));
+	SelheroNameInit();
+}
+
+void SelheroNameInit()
+{
+	const Point uiPosition = GetUIRectangle().position;
 	vecSelDlgItems.clear();
 	SDL_Rect rect1 = { (Sint16)(uiPosition.x + 242), (Sint16)(uiPosition.y + 211), 365, 33 };
 	vecSelDlgItems.push_back(std::make_unique<UiArtText>(_("Enter Name").data(), rect1, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
@@ -306,8 +316,53 @@ void SelheroClassSelectorEsc()
 	SelheroListEsc();
 }
 
+/** F2 on the hero list: the name screen for the highlighted hero, its name ready to edit. */
+void SelheroListRename()
+{
+	if (!selhero_isSavegame)
+		return;
+	selhero_renaming = true;
+	title = selhero_isMultiPlayer ? _("Rename Multi Player Hero").data() : _("Rename Single Player Hero").data();
+	SelheroNameInit();
+}
+
+/** The rename, once the name is entered: refused if it's empty, or another hero's (or invalid, in multiplayer). */
+void SelheroRenameSelect()
+{
+	const char *error = nullptr;
+	if (selhero_heroInfo.name[0] == '\0') {
+		error = _("A name cannot be empty.").data();
+	} else if (selhero_isMultiPlayer && !UiValidPlayerName(selhero_heroInfo.name)) {
+		error = _("Invalid name. A name cannot contain spaces, reserved characters, or reserved words.\n").data();
+	} else {
+		for (std::size_t i = 0; i < selhero_SaveCount; i++) {
+			if (selhero_heros[i].saveNumber != selhero_heroInfo.saveNumber && AsciiStrToLower(selhero_heros[i].name) == AsciiStrToLower(selhero_heroInfo.name))
+				error = _("Another hero already has that name.").data();
+		}
+	}
+	if (error != nullptr) {
+		RemoveSelHeroBackground();
+		UiSelOkDialog(title, error, false);
+		AddSelHeroBackground();
+		SelheroNameInit();
+		return;
+	}
+	if (!pfile_ui_save_rename(&selhero_heroInfo))
+		UiErrorOkDialog(_("Unable to rename character."), vecSelHeroDialog);
+	selhero_renaming = false;
+	for (std::size_t i = 0; i < selhero_SaveCount; i++) {
+		if (selhero_heros[i].saveNumber == selhero_heroInfo.saveNumber)
+			CopyUtf8(selhero_heros[i].name, selhero_heroInfo.name, sizeof(selhero_heros[i].name));
+	}
+	selhero_List_Init();
+}
+
 void SelheroNameSelect(int /*value*/)
 {
+	if (selhero_renaming) {
+		SelheroRenameSelect();
+		return;
+	}
 	// only check names in multiplayer, we don't care about them in single
 	if (selhero_isMultiPlayer && !UiValidPlayerName(selhero_heroInfo.name)) {
 		RemoveSelHeroBackground();
@@ -327,6 +382,16 @@ void SelheroNameSelect(int /*value*/)
 
 void SelheroNameEsc()
 {
+	if (selhero_renaming) {
+		// Back to the list with the name as it was: the edit box wrote into the highlighted hero's copy.
+		selhero_renaming = false;
+		for (std::size_t i = 0; i < selhero_SaveCount; i++) {
+			if (selhero_heros[i].saveNumber == selhero_heroInfo.saveNumber)
+				CopyUtf8(selhero_heroInfo.name, selhero_heros[i].name, sizeof(selhero_heroInfo.name));
+		}
+		selhero_List_Init();
+		return;
+	}
 	SelheroListSelect(selhero_SaveCount);
 }
 
@@ -536,6 +601,7 @@ void selhero_List_Init()
 	vecSelDlgItems.push_back(std::make_unique<UiArtTextButton>(_("Cancel"), &UiFocusNavigationEsc, rect5, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
 
 	UiInitList(SelheroListFocus, SelheroListSelect, SelheroListEsc, vecSelDlgItems, false, nullptr, SelheroListDeleteYesNo, selectedItem);
+	UiSetListRename(SelheroListRename);
 	if (selhero_isMultiPlayer) {
 		title = _("Multi Player Characters").data();
 	} else {
