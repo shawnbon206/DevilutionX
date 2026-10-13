@@ -7,9 +7,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -21,6 +23,7 @@
 #include "engine/backbuffer_state.hpp"
 #include "engine/clx_sprite.hpp"
 #include "engine/load_cel.hpp"
+#include "engine/palette.h"
 #include "engine/render/clx_render.hpp"
 #include "engine/render/text_render.hpp"
 #include "engine/trn.hpp"
@@ -934,6 +937,7 @@ void DrawCtrlBtns(const Surface &out)
 		else
 			ClxDraw(out, mainPanelPosition + Displacement { 527, 122 }, (*multiButtons)[PanelButtons[7] ? 5 : 4]);
 	}
+	DrawPlayerList(out);
 }
 
 void ClearPanBtn()
@@ -944,11 +948,15 @@ void ClearPanBtn()
 	panbtndown = false;
 }
 
+bool IsPanelButtonCovered(int button);
+
 void DoPanBtn()
 {
 	const Point mainPanelPosition = GetMainPanel().position;
 
 	for (int i = 0; i < PanelButtonIndex; i++) {
+		if (IsPanelButtonCovered(i))
+			continue;
 		int x = PanBtnPos[i].x + mainPanelPosition.x + PanBtnPos[i].w;
 		int y = PanBtnPos[i].y + mainPanelPosition.y + PanBtnPos[i].h;
 		if (MousePosition.x >= PanBtnPos[i].x + mainPanelPosition.x && MousePosition.x <= x) {
@@ -977,7 +985,8 @@ void control_check_btn_press()
 	const Point mainPanelPosition = GetMainPanel().position;
 	int x = PanBtnPos[3].x + mainPanelPosition.x + PanBtnPos[3].w;
 	int y = PanBtnPos[3].y + mainPanelPosition.y + PanBtnPos[3].h;
-	if (MousePosition.x >= PanBtnPos[3].x + mainPanelPosition.x
+	if (!IsPanelButtonCovered(3)
+	    && MousePosition.x >= PanBtnPos[3].x + mainPanelPosition.x
 	    && MousePosition.x <= x
 	    && MousePosition.y >= PanBtnPos[3].y + mainPanelPosition.y
 	    && MousePosition.y <= y) {
@@ -985,7 +994,8 @@ void control_check_btn_press()
 	}
 	x = PanBtnPos[6].x + mainPanelPosition.x + PanBtnPos[6].w;
 	y = PanBtnPos[6].y + mainPanelPosition.y + PanBtnPos[6].h;
-	if (MousePosition.x >= PanBtnPos[6].x + mainPanelPosition.x
+	if (!IsPanelButtonCovered(6)
+	    && MousePosition.x >= PanBtnPos[6].x + mainPanelPosition.x
 	    && MousePosition.x <= x
 	    && MousePosition.y >= PanBtnPos[6].y + mainPanelPosition.y
 	    && MousePosition.y <= y) {
@@ -1007,6 +1017,8 @@ void CheckPanelInfo()
 	InfoString = StringOrView {};
 	const Point mainPanelPosition = GetMainPanel().position;
 	for (int i = 0; i < PanelButtonIndex; i++) {
+		if (IsPanelButtonCovered(i))
+			continue;
 		int xend = PanBtnPos[i].x + mainPanelPosition.x + PanBtnPos[i].w;
 		int yend = PanBtnPos[i].y + mainPanelPosition.y + PanBtnPos[i].h;
 		if (MousePosition.x >= PanBtnPos[i].x + mainPanelPosition.x && MousePosition.x <= xend && MousePosition.y >= PanBtnPos[i].y + mainPanelPosition.y && MousePosition.y <= yend) {
@@ -1160,6 +1172,309 @@ void FreeControlPan()
 	FreeMainPanel();
 	FreeCharPanel();
 	FreeModifierHints();
+}
+
+/** Where each player was last seen (level, and whether it's a quest level), and when that last changed. */
+struct Whereabouts {
+	bool known = false;
+	uint8_t level = 0;
+	bool setLevel = false;
+	uint32_t changedAt = 0;
+};
+std::array<Whereabouts, MAX_PLRS> PlayerWhereabouts;
+
+/** How long a player's line hops after they change level, in ms, and how many hops it makes. */
+constexpr uint32_t HopTime = 1200;
+constexpr int Hops = 3;
+
+/**
+ * Where the list goes, on the panel: below the quests button, over the map, menu and chat buttons (Tab, Esc and Enter
+ * do their work), clear of the info box, the chat panel and the life globe, so it's always in view, in a fight too.
+ */
+constexpr Rectangle PlayerListArea { { 3, 69 }, { 162, 57 } };
+
+/** Whether a panel button is under the player list: in multiplayer, map (2), menu (3) and chat (6). */
+bool IsPanelButtonCovered(int button)
+{
+	return gbIsMultiplayer && IsAnyOf(button, 2, 3, 6);
+}
+
+/** Notes the players who have changed level since the last frame. A player seen for the first time doesn't hop. */
+void UpdatePlayerWhereabouts()
+{
+	for (size_t i = 0; i < Players.size() && i < PlayerWhereabouts.size(); i++) {
+		const Player &player = Players[i];
+		Whereabouts &seen = PlayerWhereabouts[i];
+		if (!player.plractive) {
+			seen.known = false;
+			continue;
+		}
+		if (!seen.known)
+			seen = { true, player.plrlevel, player.plrIsOnSetLevel, 0 };
+		else if (seen.level != player.plrlevel || seen.setLevel != player.plrIsOnSetLevel)
+			seen = { true, player.plrlevel, player.plrIsOnSetLevel, SDL_GetTicks() };
+	}
+}
+
+/** Where a player is, as seed search codes put levels: "12" for a dungeon level, "s5" for a quest level, "t" for town. */
+std::string WhereaboutsName(const Player &player)
+{
+	if (player.plrIsOnSetLevel)
+		return fmt::format("s{:d}", player.plrlevel);
+	if (player.plrlevel == 0)
+		return std::string(_(/* TRANSLATORS: Short for town, after a player's name in the player list. */ "t"));
+	return fmt::format("{:d}", player.plrlevel);
+}
+
+/** A hash of a point, for noise that's the same every time it's asked for. */
+uint32_t PointHash(int x, int y, uint32_t seed)
+{
+	uint32_t h = static_cast<uint32_t>(x) * 374761393U + static_cast<uint32_t>(y) * 668265263U + seed * 2246822519U;
+	h = (h ^ (h >> 13)) * 1274126177U;
+	return h ^ (h >> 16);
+}
+
+/** Clean stone on the panel to piece the mosaic from (panel coordinates, read off screenshots). */
+struct StoneSource {
+	int left;
+	int top;
+	int width;
+	int height;
+};
+constexpr std::array<StoneSource, 4> StoneSources { {
+	{ 8, 57, 84, 15 }, // between the quests and map buttons
+	{ 441, 2, 15, 33 }, // up left of the mana globe
+	{ 530, 62, 30, 27 }, // down right of the mana globe
+	{ 627, 58, 12, 66 }, // right of the quick skill
+} };
+
+/** The map and menu buttons with their gold frames and the frames' shadows, up to the life globe's wing (x 83). */
+constexpr Rectangle MosaicPatch { { 6, 72 }, { 77, 51 } };
+
+/**
+ * The stone over the map and menu buttons, worked out once: a mosaic of irregular tiles (rows 9-15 high, tiles 10-28
+ * wide, so no grid lines up), each a piece of clean stone from around the panel (StoneSources), picked at random by
+ * size and flipped at random. Its top fades into the stone above mirrored down, and its bottom into the dark strip along
+ * the panel's bottom edge mirrored up, so it runs on from the stone around it without a seam.
+ */
+const std::vector<uint8_t> &MosaicStone()
+{
+	static std::vector<uint8_t> stone;
+	if (!stone.empty())
+		return stone;
+	const Surface &art = *pBtmBuff;
+	const auto artAt = [&](int x, int y) { return *art.at(x, y + 16); };
+	const int left = MosaicPatch.position.x;
+	const int top = MosaicPatch.position.y;
+	const int width = MosaicPatch.size.width;
+	const int height = MosaicPatch.size.height;
+	stone.assign(static_cast<size_t>(width) * height, 0);
+
+	int y = top;
+	for (int row = 0; y < top + height; row++) {
+		const int rowHeight = 9 + static_cast<int>(PointHash(row, 0, 11) % 7);
+		int x = left;
+		for (int col = 0; x < left + width; col++) {
+			const int tileWidth = 10 + static_cast<int>(PointHash(row, col, 12) % 19);
+			const uint32_t pick = PointHash(row, col, 13);
+			// A source big enough for the tile, by chance in proportion to its size.
+			int total = 0;
+			for (const StoneSource &source : StoneSources) {
+				if (source.width >= tileWidth && source.height >= rowHeight)
+					total += source.width * source.height;
+			}
+			int chosen = static_cast<int>(pick % static_cast<uint32_t>(total));
+			const StoneSource *from = &StoneSources[0];
+			for (const StoneSource &source : StoneSources) {
+				if (source.width < tileWidth || source.height < rowHeight)
+					continue;
+				if (chosen < source.width * source.height) {
+					from = &source;
+					break;
+				}
+				chosen -= source.width * source.height;
+			}
+			const int offsetX = static_cast<int>(PointHash(row, col, 14) % static_cast<uint32_t>(from->width - tileWidth + 1));
+			const int offsetY = static_cast<int>(PointHash(row, col, 15) % static_cast<uint32_t>(from->height - rowHeight + 1));
+			const bool flipX = ((pick >> 20) & 1) != 0;
+			const bool flipY = ((pick >> 21) & 1) != 0;
+			for (int v = 0; v < rowHeight && y + v < top + height; v++) {
+				for (int u = 0; u < tileWidth && x + u < left + width; u++) {
+					const int sourceX = from->left + offsetX + (flipX ? tileWidth - 1 - u : u);
+					const int sourceY = from->top + offsetY + (flipY ? rowHeight - 1 - v : v);
+					stone[static_cast<size_t>(y + v - top) * width + (x + u - left)] = artAt(sourceX, sourceY);
+				}
+			}
+			x += tileWidth;
+		}
+		y += rowHeight;
+	}
+
+	// Toward the top, more and more of the stone above mirrored down (row 71 next to row 72); toward the bottom, of the
+	// dark strip below mirrored up (row 123 next to row 122). Valid as far as the stone they mirror reaches.
+	for (int py = top; py < top + height; py++) {
+		for (int px = left; px < left + width; px++) {
+			const int chance = static_cast<int>(PointHash(px, py, 5) % 100);
+			const int fromTop = py - 72;
+			const int fromBottom = 122 - py;
+			uint8_t &colour = stone[static_cast<size_t>(py - top) * width + (px - left)];
+			if (fromTop < 12 && chance < 100 - fromTop * 100 / 12)
+				colour = artAt(px, 71 + 72 - py);
+			else if (fromBottom < 4 && chance < 100 - fromBottom * 100 / 4)
+				colour = artAt(px, 122 + 123 - py);
+		}
+	}
+	return stone;
+}
+
+/**
+ * Stone where the covered buttons were: the mosaic (MosaicStone) over the map and menu buttons, which are painted into
+ * the panel art, and over the chat button, which is drawn on top of it, the art under it (stone, and the tip of the life
+ * globe's wing).
+ */
+void PaintStone(const Surface &out)
+{
+	const std::vector<uint8_t> &stone = MosaicStone();
+	const Point panel = GetMainPanel().position;
+	for (int y = 0; y < MosaicPatch.size.height; y++) {
+		for (int x = 0; x < MosaicPatch.size.width; x++) {
+			const Point to = panel + Displacement { MosaicPatch.position.x + x, MosaicPatch.position.y + y };
+			if (to.x < 0 || to.y < 0 || to.x >= out.w() || to.y >= out.h())
+				continue;
+			*out.at(to.x, to.y) = stone[static_cast<size_t>(y) * MosaicPatch.size.width + x];
+		}
+	}
+	DrawPanelBox(out, MakeSdlRect(PanBtnPos[6].x, PanBtnPos[6].y + 16, PanBtnPos[6].w, PanBtnPos[6].h), panel + Displacement { PanBtnPos[6].x, PanBtnPos[6].y });
+}
+
+/**
+ * Blurs part of the screen: each pass blends every pixel with its four neighbours. The palette has no in-between
+ * colours to average into, so the blends go through paletteTransparencyLookup, which halves any two colours.
+ */
+void BlurRect(const Surface &out, Rectangle rect, int passes)
+{
+	const int left = std::max(rect.position.x, 0);
+	const int top = std::max(rect.position.y, 0);
+	const int right = std::min(rect.position.x + rect.size.width, out.w());
+	const int bottom = std::min(rect.position.y + rect.size.height, out.h());
+	const int width = right - left;
+	const int height = bottom - top;
+	if (width <= 0 || height <= 0)
+		return;
+	std::vector<uint8_t> pixels(static_cast<size_t>(width) * height);
+	std::vector<uint8_t> blurred(pixels.size());
+	for (int y = 0; y < height; y++)
+		std::copy_n(out.at(left, top + y), width, &pixels[static_cast<size_t>(y) * width]);
+	const auto at = [&](int x, int y) {
+		return pixels[static_cast<size_t>(std::clamp(y, 0, height - 1)) * width + std::clamp(x, 0, width - 1)];
+	};
+	for (int pass = 0; pass < passes; pass++) {
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				const uint8_t across = paletteTransparencyLookup[at(x - 1, y)][at(x + 1, y)];
+				const uint8_t down = paletteTransparencyLookup[at(x, y - 1)][at(x, y + 1)];
+				const uint8_t around = paletteTransparencyLookup[across][down];
+				blurred[static_cast<size_t>(y) * width + x] = paletteTransparencyLookup[at(x, y)][around];
+			}
+		}
+		pixels.swap(blurred);
+	}
+	for (int y = 0; y < height; y++)
+		std::copy_n(&pixels[static_cast<size_t>(y) * width], width, out.at(left, top + y));
+}
+
+/** Darkens part of the screen by half (blending toward black), less within a couple of pixels of its edge. */
+void DarkenRect(const Surface &out, Rectangle rect)
+{
+	constexpr int Feather = 2;
+	for (int y = std::max(rect.position.y, 0); y < std::min(rect.position.y + rect.size.height, out.h()); y++) {
+		for (int x = std::max(rect.position.x, 0); x < std::min(rect.position.x + rect.size.width, out.w()); x++) {
+			const int edge = std::min({ x - rect.position.x, rect.position.x + rect.size.width - 1 - x, y - rect.position.y, rect.position.y + rect.size.height - 1 - y });
+			uint8_t &colour = *out.at(x, y);
+			const uint8_t half = paletteTransparencyLookup[colour][0];
+			colour = edge < Feather ? paletteTransparencyLookup[colour][half] : half;
+		}
+	}
+}
+
+void DrawPlayerList(const Surface &out)
+{
+	if (!gbIsMultiplayer)
+		return;
+	UpdatePlayerWhereabouts();
+	std::vector<size_t> others;
+	for (size_t i = 0; i < Players.size() && i < PlayerWhereabouts.size(); i++) {
+		if (&Players[i] != MyPlayer && Players[i].plractive)
+			others.push_back(i);
+	}
+
+	// The covered buttons wiped out, gold frames and all, the rest left as drawn, then blurred and darkened so the names
+	// stand out from it. Every frame, as a hop moves them; empty while you're alone, so names just appear when someone joins.
+	const Point panel = GetMainPanel().position;
+	const Rectangle area { panel + Displacement { PlayerListArea.position.x, PlayerListArea.position.y }, PlayerListArea.size };
+	PaintStone(out);
+	BlurRect(out, area, 2);
+	DarkenRect(out, area);
+
+	// The names, white-gold or red as the chat panel writes them, a line apart with room above each for a hop. Where each
+	// is goes in one column for all, as wide as the widest place there is (levels 1-24, quest levels s1-s9, t) and
+	// centred in it, after the longest name and two spaces, or as far right as fits, with the names that reach past it
+	// cut short. The lot centred in the area.
+	constexpr int LinePitch = 18;
+	constexpr int Margin = 4;
+	const int width = area.size.width - 2 * Margin;
+	const auto textWidth = [](string_view text) { return GetLineWidth(text, GameFont12, 1); };
+	const int oneSpace = textWidth("_ _") - textWidth("__");
+	static const int columnWidth = [&]() {
+		int widest = textWidth(_("t"));
+		for (int level = 1; level <= 24; level++)
+			widest = std::max(widest, textWidth(fmt::format("{:d}", level)));
+		for (int level = 1; level <= 9; level++)
+			widest = std::max(widest, textWidth(fmt::format("s{:d}", level)));
+		return widest;
+	}();
+	struct Line {
+		size_t player;
+		std::string name;
+		std::string where;
+	};
+	std::vector<Line> lines;
+	int longestName = 0;
+	for (size_t line = 0; line < others.size() && line < 3; line++) {
+		const Player &player = Players[others[line]];
+		lines.push_back({ others[line], player._pName, WhereaboutsName(player) });
+		longestName = std::max(longestName, textWidth(player._pName));
+	}
+	const int column = std::min(longestName + 2 * oneSpace, width - columnWidth);
+	for (Line &line : lines) {
+		while (!line.name.empty() && textWidth(line.name) + oneSpace > column)
+			line.name.pop_back();
+	}
+	const int left = area.position.x + Margin + (width - column - columnWidth) / 2;
+	const int top = area.position.y + (area.size.height - LinePitch * static_cast<int>(lines.size())) / 2;
+
+	const uint32_t now = SDL_GetTicks();
+	bool hopping = false;
+	for (size_t row = 0; row < lines.size(); row++) {
+		const Line &line = lines[row];
+		const size_t i = line.player;
+		const Player &player = Players[i];
+		// A player who just changed level: their line hops, dying down.
+		int hop = 0;
+		const uint32_t since = now - PlayerWhereabouts[i].changedAt;
+		if (PlayerWhereabouts[i].changedAt != 0 && since < HopTime) {
+			const float progress = static_cast<float>(since) / HopTime;
+			hop = static_cast<int>(6.0F * (1.0F - progress) * std::abs(std::sin(progress * Hops * 3.14159265F)));
+			hopping = true;
+		}
+		const UiFlags colour = (player.friendlyMode ? UiFlags::ColorWhitegold : UiFlags::ColorRed) | UiFlags::VerticalCenter;
+		const Point at { left, top + static_cast<int>(row) * LinePitch - hop };
+		DrawString(out, line.name, { at, { column, LinePitch } }, { colour });
+		DrawString(out, line.where, { at + Displacement { column, 0 }, { columnWidth, LinePitch } }, { colour | UiFlags::AlignCenter });
+	}
+	// Where the panel isn't redrawn every frame (a screen no wider than it), ask for the frames a hop needs.
+	if (hopping)
+		RedrawComponent(PanelDrawComponent::ControlButtons);
 }
 
 void DrawInfoBox(const Surface &out)

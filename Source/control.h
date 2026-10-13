@@ -174,6 +174,9 @@ void FreeControlPan();
  * Sets a string to be drawn in the info box and then draws it.
  */
 void DrawInfoBox(const Surface &out);
+
+/** @brief The other players and where they are, below the life globe; bouncing when one changes level. */
+void DrawPlayerList(const Surface &out);
 void CheckLvlBtn();
 void ReleaseLvlBtn();
 void DrawLevelUpIcon(const Surface &out);
