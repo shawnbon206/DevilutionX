@@ -19,6 +19,7 @@
 #include "debug.h"
 #endif
 #include "DiabloUI/diabloui.h"
+#include "control.h"
 #include "controls/devices/kbcontroller.h"
 #include "controls/plrctrls.h"
 #include "controls/remap_keyboard.h"
@@ -1436,6 +1437,7 @@ void GameLogic()
 	sound_update();
 	CheckTriggers();
 	CheckQuests();
+	RetireFinishedAutomapMarker();
 	RedrawViewport();
 	pfile_update(false);
 
@@ -3000,6 +3002,7 @@ void LoadGameLevel(bool firstflag, lvl_entry lvldir)
 	}
 
 	CompleteProgress();
+	AnnounceAutomapMarker();
 
 	// Recalculate mouse selection of entities after level change/load
 	LastMouseButtonAction = MouseActionType::None;

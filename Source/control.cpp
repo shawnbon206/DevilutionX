@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,8 +46,11 @@
 #include "panels/spell_icons.hpp"
 #include "panels/spell_list.hpp"
 #include "playerdat.hpp"
+#include "plrmsg.h"
+#include "portal.h"
 #include "qol/stash.h"
 #include "qol/xpbar.h"
+#include "quests.h"
 #include "stores.h"
 #include "towners.h"
 #include "utils/format_int.hpp"
@@ -531,12 +536,169 @@ std::string TextCmdLevelSeed(const string_view parameter)
 	    "Storybook: ", glSeedTbl[16]);
 }
 
+/**
+ * What /pos marked on the automap: a fixed tile, or a monster or object it follows, shown on its level, with the way
+ * there marked elsewhere. Or just a level, for the way there.
+ */
+struct PositionMarker {
+	enum class Kind : uint8_t {
+		Tile,
+		Monster,
+		Object,
+		Level,
+	};
+	Kind kind;
+	int index;
+	Point tile;
+	uint8_t level;
+	bool isSetLevel;
+	/** For a tile left by a marked monster's death: its name, and its number (index). */
+	std::string remainsOf;
+};
+
+std::optional<PositionMarker> Marker;
+
+bool IsMarkerOnThisLevel()
+{
+	return Marker && Marker->level == currlevel && Marker->isSetLevel == setlevel;
+}
+
+/** "town", "dungeon level 9", or a quest level's name ("Lazarus' Lair" is set level 5). */
+std::string MarkerLevelName(uint8_t level, bool isSetLevel)
+{
+	if (isSetLevel) {
+		for (const Quest &quest : Quests) {
+			if (quest._qslvl == level)
+				return std::string(_(QuestsData[quest._qidx]._qlstr));
+		}
+	}
+	if (level == 0)
+		return std::string(_("town"));
+	return fmt::format(fmt::runtime(_("dungeon level {:d}")), level);
+}
+
+bool IsActiveMonster(int index)
+{
+	return std::find(ActiveMonsters, ActiveMonsters + ActiveMonsterCount, index) != ActiveMonsters + ActiveMonsterCount;
+}
+
+/**
+ * Where a dead monster fell: its tile once it's dead, kept for a kill made while you were elsewhere too (the kill is
+ * shared with where it happened, delta_kill_monster, and put back when you arrive, DeltaLoadLevel). Nothing for a live
+ * monster, or one never on the map (a skeleton still waiting in its sarcophagus).
+ */
+std::optional<Point> DeathTile(int index)
+{
+	const Monster &monster = Monsters[index];
+	if (IsActiveMonster(index) && monster.hitPoints > 0 && !monster.isInvalid)
+		return std::nullopt;
+	if (monster.hitPoints > 0 || monster.position.tile == Point { 0, 0 } || monster.position.tile == GolemHoldingCell)
+		return std::nullopt;
+	return monster.position.tile;
+}
+
+bool IsActiveObject(int index)
+{
+	return std::find(ActiveObjects, ActiveObjects + ActiveObjectCount, index) != ActiveObjects + ActiveObjectCount;
+}
+
+/** Reads "m59", "o62" or "68,76" (spaces and "(68, 76)" work too) as a marker on the given level. */
+std::optional<PositionMarker> ParseMarkerTarget(string_view target, uint8_t level, bool isSetLevel)
+{
+	std::string text(target);
+	std::replace_if(text.begin(), text.end(), [](char c) { return c == ',' || c == '(' || c == ')'; }, ' ');
+	PositionMarker marker { PositionMarker::Kind::Tile, -1, {}, level, isSetLevel };
+	int first = 0;
+	int second = 0;
+	char extra = 0;
+	if (!text.empty() && (text[0] == 'm' || text[0] == 'o') && std::sscanf(text.c_str() + 1, "%d %c", &first, &extra) == 1) {
+		const bool isMonster = text[0] == 'm';
+		if (first < 0 || first >= (isMonster ? static_cast<int>(MaxMonsters) : MAXOBJECTS))
+			return std::nullopt;
+		marker.kind = isMonster ? PositionMarker::Kind::Monster : PositionMarker::Kind::Object;
+		marker.index = first;
+		return marker;
+	}
+	if (std::sscanf(text.c_str(), "%d %d %c", &first, &second, &extra) == 2 && first >= 0 && second >= 0 && first < MAXDUNX && second < MAXDUNY) {
+		marker.tile = { first, second };
+		return marker;
+	}
+	return std::nullopt;
+}
+
+/** A level as seed codes write it: "16" for dungeon level 16, "s5" for set level 5 (Lazarus' Lair). */
+bool ParseMarkerLevel(string_view levelText, uint8_t &level, bool &isSetLevel)
+{
+	isSetLevel = !levelText.empty() && levelText[0] == 's';
+	if (isSetLevel)
+		levelText.remove_prefix(1);
+	int number = 0;
+	for (char c : levelText) {
+		if (c < '0' || c > '9' || number > 100)
+			return false;
+		number = number * 10 + (c - '0');
+	}
+	if (levelText.empty() || number < 1 || number >= NUMLEVELS)
+		return false;
+	level = static_cast<uint8_t>(number);
+	return true;
+}
+
+std::string TextCmdPos(const string_view parameter)
+{
+	if (parameter.empty()) {
+		const Point here = MyPlayer->position.tile;
+		return fmt::format(fmt::runtime(_("You are at {:d}, {:d}.")), here.x, here.y);
+	}
+	if (parameter == "off") {
+		Marker = std::nullopt;
+		return std::string(_("Automap marker cleared."));
+	}
+	const std::string usage(_("Use /pos, /pos <x>,<y>, /pos m<number>, /pos o<number>, /pos <level>, /pos <level>:<target> or /pos off."));
+	// Just a level, as seed codes write it: "/pos 16", "/pos s5". The automap shows the way there.
+	uint8_t level;
+	bool isSetLevel;
+	if (ParseMarkerLevel(parameter, level, isSetLevel)) {
+		Marker = PositionMarker { PositionMarker::Kind::Level, -1, {}, level, isSetLevel };
+		if (IsMarkerOnThisLevel())
+			return fmt::format(fmt::runtime(_("You're on {:s}.")), MarkerLevelName(level, isSetLevel));
+		return fmt::format(fmt::runtime(_("The automap shows the way to {:s}.")), MarkerLevelName(level, isSetLevel));
+	}
+	// A target on any level, written like the end of a seed code ("16:m59", "s5:m40", "9:68,76"), or a whole code.
+	if (parameter.find(':') != string_view::npos) {
+		string_view code = parameter;
+		const size_t dash = code.find('-');
+		if (dash != string_view::npos) {
+			const string_view seedText = code.substr(0, dash);
+			if (seedText != std::to_string(sgGameInitInfo.dwSeed))
+				return fmt::format(fmt::runtime(_("That code is for game seed {:s}; this game's seed is {:d}.")), seedText, sgGameInitInfo.dwSeed);
+			code.remove_prefix(dash + 1);
+		}
+		if (!SetAutomapMarkerFromCode(code))
+			return usage;
+		if (IsMarkerOnThisLevel())
+			return GetAutomapMarkerText();
+		const string_view target = code.substr(code.find(':') + 1);
+		return fmt::format(fmt::runtime(_("Marked {:s} on {:s}. The automap shows the way there.")), target, MarkerLevelName(Marker->level, Marker->isSetLevel));
+	}
+	const std::optional<PositionMarker> marker = ParseMarkerTarget(parameter, currlevel, setlevel);
+	if (!marker)
+		return usage;
+	if (marker->kind == PositionMarker::Kind::Monster && !IsActiveMonster(marker->index) && DeathTile(marker->index) == std::nullopt)
+		return fmt::format(fmt::runtime(_("There is no m{:d} on this level.")), marker->index);
+	if (marker->kind == PositionMarker::Kind::Object && !IsActiveObject(marker->index))
+		return fmt::format(fmt::runtime(_("There is no o{:d} on this level.")), marker->index);
+	Marker = marker;
+	return GetAutomapMarkerText();
+}
+
 std::vector<TextCmdItem> TextCmdList = {
 	{ N_("/help"), N_("Prints help overview or help for a specific command."), N_("[command]"), &TextCmdHelp },
 	{ N_("/arena"), N_("Enter a PvP Arena."), N_("<arena-number>"), &TextCmdArena },
 	{ N_("/arenapot"), N_("Gives Arena Potions."), N_("<number>"), &TextCmdArenaPot },
 	{ N_("/inspect"), N_("Inspects stats and equipment of another player."), N_("<player name>"), &TextCmdInspect },
 	{ N_("/seedinfo"), N_("Show seed infos for current level."), "", &TextCmdLevelSeed },
+	{ N_("/pos"), N_("Shows your tile, marks a tile, monster or object on the automap, or shows the way to a level."), N_("[<x>,<y> | m<number> | o<number> | <level> | <level>:<target> | off]"), &TextCmdPos },
 };
 
 bool CheckTextCommand(const string_view text)
@@ -653,6 +815,249 @@ bool IsLevelUpButtonVisible()
 }
 
 } // namespace
+
+bool SetAutomapMarkerFromCode(string_view levelAndTarget)
+{
+	// "16:m59" for dungeon level 16, "s5:m40" for set level 5 (Lazarus' Lair).
+	const size_t colon = levelAndTarget.find(':');
+	if (colon == string_view::npos || colon == 0)
+		return false;
+	uint8_t level;
+	bool isSetLevel;
+	if (!ParseMarkerLevel(levelAndTarget.substr(0, colon), level, isSetLevel))
+		return false;
+	const std::optional<PositionMarker> marker = ParseMarkerTarget(levelAndTarget.substr(colon + 1), level, isSetLevel);
+	if (!marker)
+		return false;
+	Marker = marker;
+	return true;
+}
+
+std::vector<AutomapWaypoint> GetAutomapWaypoints()
+{
+	std::vector<AutomapWaypoint> waypoints;
+	if (!Marker || IsMarkerOnThisLevel())
+		return waypoints;
+
+	// A marked quest level is reached through its entrance on a dungeon level; head for that level first.
+	int routeLevel = Marker->level;
+	const Quest *entrance = nullptr;
+	if (Marker->isSetLevel) {
+		for (const Quest &quest : Quests) {
+			if (quest._qslvl == Marker->level && quest._qactive != QUEST_NOTAVAIL) {
+				entrance = &quest;
+				routeLevel = quest._qlevel;
+			}
+		}
+		if (entrance == nullptr)
+			return waypoints;
+	}
+
+	auto addTriggers = [&waypoints](interface_mode message) {
+		for (int i = 0; i < numtrigs; i++) {
+			if (trigs[i]._tmsg == message)
+				waypoints.push_back({ trigs[i].position });
+		}
+	};
+
+	if (setlevel) {
+		addTriggers(WM_DIABRTNLVL);
+		return waypoints;
+	}
+	// Both ways on from dlvl 15 (Lazarus' portal, and the pentagram down to Diablo) open only after the Staff of Lazarus
+	// is dealt with, so on the way through, the staff is marked too, as an errand: its stand while the staff is on
+	// it, or the staff wherever it lies on this level.
+	auto addLazarusStaff = [&waypoints]() {
+		for (int i = 0; i < ActiveObjectCount; i++) {
+			const Object &object = Objects[ActiveObjects[i]];
+			if (object._otype == OBJ_LAZSTAND && object._oSelFlag != 0)
+				waypoints.push_back({ object.position });
+		}
+		for (uint8_t i = 0; i < ActiveItemCount; i++) {
+			if (Items[ActiveItems[i]].IDidx == IDI_LAZSTAFF)
+				waypoints.push_back({ Items[ActiveItems[i]].position });
+		}
+	};
+
+	if (currlevel == routeLevel) {
+		if (entrance != nullptr)
+			waypoints.push_back({ entrance->position });
+		if (entrance != nullptr && entrance->_qidx == Q_BETRAYER)
+			addLazarusStaff();
+		return waypoints;
+	}
+	if (currlevel == 15 && routeLevel == 16) {
+		// The way down is the pentagram, which becomes stairs only once Lazarus is dead (InitL4Triggers); it's
+		// marked either way.
+		for (int j = 0; j < MAXDUNY; j++) {
+			for (int i = 0; i < MAXDUNX; i++) {
+				if (dPiece[i][j] == 369)
+					waypoints.push_back({ { i, j } });
+			}
+		}
+		// Until then the errand is the staff, and once Cain has it and the portal is open (_qvar1 >= 3), Lazarus.
+		const Quest &betrayer = Quests[Q_BETRAYER];
+		if (betrayer._qactive != QUEST_DONE && betrayer._qvar1 >= 3)
+			waypoints.push_back({ betrayer.position });
+		addLazarusStaff();
+		return waypoints;
+	}
+	if (leveltype == DTYPE_TOWN) {
+		// The cathedral entrance, unlocked town warp or open town portal that leaves the fewest levels to walk, up
+		// or down (for dlvl 8, the caves warp and one level up). A portal into the marked quest level itself beats
+		// everything. On a tie a town portal wins, since it was opened partway into its level, and your own portal
+		// over another player's; between stairs and warps, the shallower one.
+		std::optional<Point> best;
+		bool bestIsPortal = false;
+		bool bestIsMine = false;
+		int bestDistance = std::numeric_limits<int>::max();
+		int bestLevel = 0;
+		for (int i = 0; i < numtrigs; i++) {
+			const int leadsTo = trigs[i]._tmsg == WM_DIABNEXTLVL ? 1 : (trigs[i]._tmsg == WM_DIABTOWNWARP ? trigs[i]._tlvl : 0);
+			if (leadsTo == 0)
+				continue;
+			const int distance = std::abs(leadsTo - routeLevel);
+			if (distance < bestDistance || (distance == bestDistance && leadsTo < bestLevel)) {
+				best = trigs[i].position;
+				bestDistance = distance;
+				bestLevel = leadsTo;
+			}
+		}
+		for (const Missile &missile : Missiles) {
+			if (missile._mitype != MissileID::TownPortal || missile._misource < 0 || missile._misource >= MAXPORTAL)
+				continue;
+			const Portal &portal = Portals[missile._misource];
+			if (!portal.open)
+				continue;
+			int distance;
+			if (portal.setlvl) {
+				if (!Marker->isSetLevel || portal.level != Marker->level)
+					continue;
+				distance = -1;
+			} else {
+				distance = std::abs(portal.level - routeLevel);
+			}
+			const bool isMine = missile._misource == MyPlayerId;
+			if (distance < bestDistance || (distance == bestDistance && (!bestIsPortal || (isMine && !bestIsMine)))) {
+				best = missile.position.tile;
+				bestDistance = distance;
+				bestIsPortal = true;
+				bestIsMine = isMine;
+			}
+		}
+		if (best)
+			waypoints.push_back({ *best });
+		return waypoints;
+	}
+	if (routeLevel == 0) {
+		// Back to town, where a marked player is: a town portal on this level if one is open, else the way up.
+		for (const Missile &missile : Missiles) {
+			if (missile._mitype == MissileID::TownPortal)
+				waypoints.push_back({ missile.position.tile });
+		}
+		if (waypoints.empty()) {
+			addTriggers(WM_DIABPREVLVL);
+			addTriggers(WM_DIABTWARPUP);
+		}
+		return waypoints;
+	}
+	addTriggers(currlevel < routeLevel ? WM_DIABNEXTLVL : WM_DIABPREVLVL);
+	return waypoints;
+}
+
+void RetireFinishedAutomapMarker()
+{
+	if (!IsMarkerOnThisLevel())
+		return;
+	if (Marker->kind == PositionMarker::Kind::Monster) {
+		const Monster &monster = Monsters[Marker->index];
+		if (IsActiveMonster(Marker->index) && monster.hitPoints > 0 && !monster.isInvalid)
+			return;
+		// Dead: the marker stays where it fell, where its drop lies, until /pos off.
+		if (const std::optional<Point> fell = DeathTile(Marker->index)) {
+			Marker->remainsOf = std::string(monster.name());
+			Marker->kind = PositionMarker::Kind::Tile;
+			Marker->tile = *fell;
+			return;
+		}
+	} else if (Marker->kind == PositionMarker::Kind::Object) {
+		if (IsActiveObject(Marker->index) && Objects[Marker->index]._oSelFlag != 0)
+			return;
+	} else {
+		return;
+	}
+	Marker = std::nullopt;
+}
+
+void ClearAutomapMarker()
+{
+	Marker = std::nullopt;
+}
+
+void AnnounceAutomapMarker()
+{
+	if (IsMarkerOnThisLevel() && Marker->kind != PositionMarker::Kind::Level)
+		EventPlrMsg(GetAutomapMarkerText());
+}
+
+std::optional<size_t> GetAutomapMarkedMonster()
+{
+	if (!IsMarkerOnThisLevel() || Marker->kind != PositionMarker::Kind::Monster || !GetAutomapMarkerTile())
+		return std::nullopt;
+	return static_cast<size_t>(Marker->index);
+}
+
+std::optional<Point> GetAutomapMarkerTile()
+{
+	if (!IsMarkerOnThisLevel())
+		return std::nullopt;
+	switch (Marker->kind) {
+	case PositionMarker::Kind::Monster: {
+		const Monster &monster = Monsters[Marker->index];
+		if (!IsActiveMonster(Marker->index) || monster.hitPoints <= 0 || monster.isInvalid)
+			return std::nullopt;
+		return monster.position.tile;
+	}
+	case PositionMarker::Kind::Object:
+		if (!IsActiveObject(Marker->index))
+			return std::nullopt;
+		return Objects[Marker->index].position;
+	case PositionMarker::Kind::Level:
+		return std::nullopt;
+	default:
+		return Marker->tile;
+	}
+}
+
+std::string GetAutomapMarkerText()
+{
+	if (!IsMarkerOnThisLevel())
+		return "";
+	switch (Marker->kind) {
+	case PositionMarker::Kind::Monster: {
+		const Monster &monster = Monsters[Marker->index];
+		if (!IsActiveMonster(Marker->index))
+			return fmt::format(fmt::runtime(_("Marked: m{:d} is not on this level")), Marker->index);
+		if (monster.hitPoints <= 0 || monster.isInvalid)
+			return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d}) is dead")), monster.name(), Marker->index);
+		return fmt::format(fmt::runtime(_("Marked: {:s} (m{:d})")), monster.name(), Marker->index);
+	}
+	case PositionMarker::Kind::Object: {
+		const Object &object = Objects[Marker->index];
+		if (!IsActiveObject(Marker->index))
+			return fmt::format(fmt::runtime(_("Marked: o{:d} is not on this level")), Marker->index);
+		if (object._oSelFlag == 0)
+			return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}, already opened")), Marker->index, object.position.x, object.position.y);
+		return fmt::format(fmt::runtime(_("Marked: object o{:d} at {:d}, {:d}")), Marker->index, object.position.x, object.position.y);
+	}
+	case PositionMarker::Kind::Level:
+		return "";
+	default:
+		if (!Marker->remainsOf.empty())
+			return fmt::format(fmt::runtime(_("Marked: where {:s} (m{:d}) died, {:d}, {:d}")), Marker->remainsOf, Marker->index, Marker->tile.x, Marker->tile.y);
+		return fmt::format(fmt::runtime(_("Marked: {:d}, {:d}")), Marker->tile.x, Marker->tile.y);
+	}
+}
 
 void CalculatePanelAreas()
 {
