@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - android-fullscreen
     paths-ignore:
       - '*.md'
   pull_request:
